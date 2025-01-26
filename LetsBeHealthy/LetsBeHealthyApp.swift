@@ -7,24 +7,27 @@
 
 import SwiftUI
 import GoogleSignIn
-//import Firebase
-//import FirebaseFirestore
-
+import Firebase
+import FirebaseAppCheck
+import FirebaseCore
 @main
 struct LetsBeHealthyApp: App {
     @State private var isLoggedIn: Bool = false
     @State var user: User?
-    //@StateObject private var firestoreManager = FirestoreManager() //
-
-//    init() {
-//        FirebaseApp.configure() // 🔥 Initialize Firebase
-//    }
+    //@StateObject private var firestoreManager = FirestoreManager()
+    init() {
+        AppCheck.setAppCheckProviderFactory(nil)
+        FirebaseApp.configure()
+        print("🚀 Firebase Successfully Configured Without App Check!")
+//        AppCheck.appCheck().isTokenAutoRefreshEnabled = false // 🔥 Disable App Check
+//            
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView(user: self.$user)
                 .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url)
+                    GIDSignIn.sharedInstance.handle(url) // ✅ FIX: Correct URL handling
                 }
                 .onAppear {
                     GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
@@ -33,8 +36,7 @@ struct LetsBeHealthyApp: App {
                             LoginView(isLoggedIn: $isLoggedIn, user: $user)
                         }
                     }
-                    //                    firestoreManager.setupFirestore() // 🔥 Initialize Firestore when app appears
-                    //
+
                 }
         }
     }
@@ -42,7 +44,7 @@ struct LetsBeHealthyApp: App {
 
 // 🔹 Firestore Manager for Global Use
 //class FirestoreManager: ObservableObject {
-//    let db = Firestore.firestore()
+//    @Published var db = Firestore.firestore() // ✅ FIX: Firestore instance is @Published
 //
 //    func setupFirestore() {
 //        print("🔥 Firestore Initialized: \(db)")

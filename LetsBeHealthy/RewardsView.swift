@@ -1,6 +1,4 @@
 import SwiftUI
-import Firebase
-//import FirebaseFirestore
 
 struct RewardsView: View {
     @State private var totalStepCoins: Int = UserDefaults.standard.integer(forKey: "totalStepCoins") // Persistent StepCoins
