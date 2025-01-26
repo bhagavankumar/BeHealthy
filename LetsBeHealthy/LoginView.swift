@@ -3,12 +3,13 @@ import GoogleSignIn
 import GoogleSignInSwift
 import AuthenticationServices
 import FirebaseAuth
+import FirebaseFirestore
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
     @Binding var user: User?
     @State private var isLogin: Bool = true // Toggle between login and signup
-    
+
     var body: some View {
         ZStack {
             LinearGradient(
@@ -17,21 +18,21 @@ struct LoginView: View {
                 endPoint: .bottom
             )
             .edgesIgnoringSafeArea(.all)
-            
+
             VStack {
                 Text(isLogin ? "Welcome to StepRewards" : "Create an Account")
                     .font(.largeTitle)
                     .foregroundColor(.white)
                     .padding()
-                
+
                 if isLogin {
                     LoginOnlyView(isLoggedIn: $isLoggedIn, user: $user)
                 } else {
                     SignupView(isLoggedIn: $isLoggedIn, user: $user)
                 }
-                
+
                 Spacer()
-                
+
                 Button(action: {
                     isLogin.toggle()
                 }) {
@@ -52,7 +53,7 @@ struct LoginOnlyView: View {
     
     @State private var email: String = ""
     @State private var password: String = ""
-
+    
     var body: some View {
         VStack(spacing: 20) {
             TextField("Email", text: $email)
@@ -66,20 +67,27 @@ struct LoginOnlyView: View {
                 .padding()
             
             Button("Login") {
-                authViewModel.login(email: email, password: password) { success in
-                    if success {
-                        self.user = User(name: email, email: email, password: "")
-                        isLoggedIn = true
+                authViewModel.login(email: email, password: password) { success, userDetails in
+                    if success, let userDetails = userDetails {
+                        DispatchQueue.main.async {
+                            self.user = User(
+                                firstName: userDetails.firstName,
+                                lastName: userDetails.lastName,
+                                email: userDetails.email,
+                                password: "" // We don't store passwords locally for security reasons
+                            )
+                            isLoggedIn = true
+                        }
                     }
                 }
             }
             .padding()
-
+            
             if !authViewModel.errorMessage.isEmpty {
                 Text(authViewModel.errorMessage)
                     .foregroundColor(.red)
             }
-
+            
             VStack(spacing: 20) {
                 GoogleSignInButton {
                     handleGoogleSignIn()
@@ -111,18 +119,23 @@ struct LoginOnlyView: View {
             print("No root view controller found.")
             return
         }
-        
+
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { signInResult, error in
             if let error = error {
                 print("Google Sign-In failed: \(error.localizedDescription)")
                 return
             }
-            
+
             guard let gUser = signInResult?.user else { return }
             print("Google User Signed In: \(gUser.profile?.name ?? "Unknown")")
-            
+
             DispatchQueue.main.async {
-                self.user = User(name: gUser.profile?.name ?? "", email: gUser.profile?.email ?? "", password: "")
+                self.user = User(
+                    firstName: gUser.profile?.givenName ?? "",
+                    lastName: gUser.profile?.familyName ?? "",
+                    email: gUser.profile?.email ?? "",
+                    password: ""
+                )
                 self.isLoggedIn = true
             }
         }
@@ -160,15 +173,21 @@ class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
     }
 }
 
+// 🔹 Signup View
 struct SignupView: View {
     @Binding var isLoggedIn: Bool
     @Binding var user: User?
     @StateObject private var authViewModel = AuthViewModel()
-    
-    @State private var name: String = ""
+
+    @State private var firstName: String = ""
+    @State private var lastName: String = ""
     @State private var email: String = ""
     @State private var password: String = ""
+    @State private var confirmPassword: String = ""
+    @State private var referralCode: String = ""
+    @State private var dateOfBirth = Date()
     @State private var isVerificationStep: Bool = false
+    @State private var showPasswordMismatch: Bool = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -182,9 +201,21 @@ struct SignupView: View {
                 Button("I have verified my email") {
                     authViewModel.checkEmailVerification { success in
                         if success {
-                            authViewModel.signUp(name: name, email: email, password: password) { signUpSuccess in
+                            authViewModel.signUp(
+                                firstName: firstName,
+                                lastName: lastName,
+                                email: email,
+                                password: password,
+                                dateOfBirth: dateOfBirth,
+                                referralCode: referralCode
+                            ) { signUpSuccess in
                                 if signUpSuccess {
-                                    user = User(name: name, email: email, password: "") // Passwordless Login
+                                    user = User(
+                                        firstName: firstName,
+                                        lastName: lastName,
+                                        email: email,
+                                        password: ""
+                                    )
                                     isLoggedIn = true
                                 }
                             }
@@ -193,9 +224,15 @@ struct SignupView: View {
                 }
                 .padding()
             } else {
-                TextField("Name", text: $name)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
+                HStack {
+                    TextField("First Name", text: $firstName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+
+                    TextField("Last Name", text: $lastName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+                }
 
                 TextField("Email", text: $email)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -203,23 +240,56 @@ struct SignupView: View {
                     .autocapitalization(.none)
                     .keyboardType(.emailAddress)
 
+                DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
+                    .datePickerStyle(CompactDatePickerStyle())
+                    .padding()
+                
                 SecureField("Password", text: $password)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
 
+                SecureField("Confirm Password", text: $confirmPassword)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+                
+                if showPasswordMismatch {
+                    Text("❌ Passwords do not match")
+                        .foregroundColor(.red)
+                        .font(.footnote)
+                }
+
+                TextField("Referral Code (Optional)", text: $referralCode)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+                    .autocapitalization(.allCharacters)
+                
                 Button("Send Verification Link") {
-                    authViewModel.signUp(name: name, email: email, password: password) { success in
-                        if success {
-                            isVerificationStep = true
+                    if password != confirmPassword {
+                        showPasswordMismatch = true
+                    } else {
+                        showPasswordMismatch = false
+                        authViewModel.signUp(
+                            firstName: firstName,
+                            lastName: lastName,
+                            email: email,
+                            password: password,
+                            dateOfBirth: dateOfBirth,
+                            referralCode: referralCode
+                        ) { success in
+                            if success {
+                                isVerificationStep = true
+                            }
                         }
                     }
                 }
                 .padding()
-            }
+                .disabled(password.isEmpty || confirmPassword.isEmpty || email.isEmpty)
 
-            if !authViewModel.errorMessage.isEmpty {
-                Text(authViewModel.errorMessage)
-                    .foregroundColor(.red)
+                if !authViewModel.errorMessage.isEmpty {
+                    Text(authViewModel.errorMessage)
+                        .foregroundColor(.red)
+                        .font(.footnote)
+                }
             }
         }
         .padding()

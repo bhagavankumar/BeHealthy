@@ -8,6 +8,7 @@
 import SwiftUI
 import Foundation
 import FirebaseAuth
+import FirebaseFirestore
 
 class AuthViewModel: ObservableObject {
     @Published var users: [User] = [] {
@@ -34,25 +35,33 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    // 🔹 Complete Signup with Email Verification
-    func signUp(name: String, email: String, password: String, completion: @escaping (Bool) -> Void) {
-        Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
-            guard let self = self else { return } // ✅ Fix: Ensure self exists
-            
+    func signUp(firstName: String, lastName: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool) -> Void) {
+        Auth.auth().createUser(withEmail: email, password: password) { result, error in
             if let error = error {
                 self.errorMessage = "❌ Signup failed: \(error.localizedDescription)"
                 completion(false)
                 return
             }
 
-            // ✅ Send Email Verification
-            result?.user.sendEmailVerification { error in
+            guard let user = result?.user else {
+                completion(false)
+                return
+            }
+
+            let userData: [String: Any] = [
+                "firstName": firstName,
+                "lastName": lastName,
+                "email": email,
+                "dateOfBirth": dateOfBirth.timeIntervalSince1970, // Store as timestamp
+                "referralCode": referralCode ?? ""
+            ]
+
+            Firestore.firestore().collection("users").document(user.uid).setData(userData) { error in
                 if let error = error {
-                    self.errorMessage = "❌ Verification email not sent: \(error.localizedDescription)"
+                    self.errorMessage = "❌ Failed to save user data: \(error.localizedDescription)"
                     completion(false)
                 } else {
-                    print("✅ Verification email sent to \(email)")
-                    completion(true) // ✅ Signup Successful, Email Verification Pending
+                    completion(true)
                 }
             }
         }
@@ -97,30 +106,39 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    // 🔹 Email & Password Login
-    func login(email: String, password: String, completion: @escaping (Bool) -> Void) {
-        Auth.auth().signIn(withEmail: email, password: password) { [weak self] result, error in
-            guard let self = self else { return } // ✅ Fix: Ensure self exists
-            
+
+    func login(email: String, password: String, completion: @escaping (Bool, User?) -> Void) {
+        Auth.auth().signIn(withEmail: email, password: password) { authResult, error in
             if let error = error {
                 self.errorMessage = "❌ Login failed: \(error.localizedDescription)"
-                completion(false)
+                completion(false, nil)
                 return
             }
 
-            guard let user = result?.user else {
-                self.errorMessage = "❌ User not found"
-                completion(false)
+            guard let userId = authResult?.user.uid else {
+                self.errorMessage = "❌ User ID not found"
+                completion(false, nil)
                 return
             }
 
-            // ✅ Ensure Email is Verified Before Allowing Login
-            if user.isEmailVerified {
-                print("✅ Login Successful")
-                completion(true)
-            } else {
-                self.errorMessage = "❌ Email not verified. Please check your inbox."
-                completion(false)
+            // Fetch user details from Firestore after login
+            let db = Firestore.firestore()
+            db.collection("users").document(userId).getDocument { document, error in
+                if let document = document, document.exists, let userData = document.data() {
+                    let firstName = userData["firstName"] as? String ?? ""
+                    let lastName = userData["lastName"] as? String ?? ""
+                    
+                    let loggedInUser = User(
+                        firstName: firstName,
+                        lastName: lastName,
+                        email: email,
+                        password: "" // Password should never be stored in plaintext
+                    )
+                    completion(true, loggedInUser)
+                } else {
+                    self.errorMessage = "❌ Failed to retrieve user details"
+                    completion(false, nil)
+                }
             }
         }
     }

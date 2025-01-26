@@ -1,4 +1,5 @@
 import SwiftUI
+import HealthKit
 
 struct RewardsView: View {
     @State private var totalStepCoins: Int = UserDefaults.standard.integer(forKey: "totalStepCoins") // Persistent StepCoins
@@ -82,7 +83,8 @@ struct RewardsView: View {
 
                     // Step Count View (Today's Steps)
                     StepCountView(stepCount: $stepCount)
-                        .onChange(of: stepCount) { _ in
+                        .onChange(of: stepCount) { newValue, oldValue in
+                            print("Step count changed from \(oldValue) to \(newValue)")
                             updateTodayStepCoins()
                         }
 
@@ -165,7 +167,7 @@ struct RewardsView: View {
             }
         }
         .onAppear {
-            updateTodayStepCoins()
+            fetchSteps()
             
         }
     }
@@ -176,25 +178,31 @@ struct RewardsView: View {
     }
     // 🔹 Updates today's StepCoins based on step count
     private func updateTodayStepCoins() {
-        let currentDate = getCurrentDateString() // 📌 Get today's date as a string
-
-        let lastUpdatedDate = UserDefaults.standard.string(forKey: "lastStepCoinUpdateDate")
-
-        // ✅ Check if StepCoins were already updated today
-        if lastUpdatedDate == currentDate {
-            print("✅ StepCoins already updated today. No duplicate earnings.")
-            return
+        
+        if stepCount > 0 {
+            let currentDate = getCurrentDateString() // 📌 Get today's date as a string
+            
+            let lastUpdatedDate = UserDefaults.standard.string(forKey: "lastStepCoinUpdateDate")
+            
+             //✅ Check if StepCoins were already updated today
+            if lastUpdatedDate == currentDate {
+                print("✅ StepCoins already updated today. No duplicate earnings.")
+                return
+            }
+            
+            // ✅ Calculate StepCoins and update only once per day
+            let newStepCoins = Int(stepCount / 100) // Example: 100 steps = 1 StepCoin
+            todayStepCoins = newStepCoins
+            
+            // ✅ Save today's StepCoins & update the last update date
+            UserDefaults.standard.set(todayStepCoins, forKey: "todayStepCoins")
+            UserDefaults.standard.set(currentDate, forKey: "lastStepCoinUpdateDate")
+            
+            print("🎉 StepCoins updated successfully: \(todayStepCoins) StepCoins earned today!")
         }
-
-        // ✅ Calculate StepCoins and update only once per day
-        let newStepCoins = Int(stepCount / 100) // Example: 100 steps = 1 StepCoin
-        todayStepCoins = newStepCoins
-
-        // ✅ Save today's StepCoins & update the last update date
-        UserDefaults.standard.set(todayStepCoins, forKey: "todayStepCoins")
-        UserDefaults.standard.set(currentDate, forKey: "lastStepCoinUpdateDate")
-
-        print("🎉 StepCoins updated successfully: \(todayStepCoins) StepCoins earned today!")
+        else {
+            print("Steps not fetched yet")
+        }
     }
     // 🔹 Function to Redeem Today's StepCoins and Add to Total
     private func redeemStepCoins() {
@@ -228,5 +236,24 @@ struct RewardsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             showNotification = false
         }
+    }
+    private func fetchSteps() {
+        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+        let now = Date()
+        let startOfDay = Calendar.current.startOfDay(for: now)
+
+        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
+
+        let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
+            guard let sum = result?.sumQuantity() else {
+                print("❌ Failed to fetch steps: \(error?.localizedDescription ?? "Unknown Error")")
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.stepCount = sum.doubleValue(for: HKUnit.count()) // ✅ Update stepCount in RewardsView
+            }
+        }
+        HKHealthStore().execute(query)
     }
 }

@@ -13,7 +13,7 @@ struct ContentView: View {
             if let user{
                 VStack {
                     if isLoggedIn {
-                        Text("Hi there, \(user.name)")
+                        Text("Hi there, \(user.lastName)")
                             .font(.largeTitle)
                             .padding()
                     }
