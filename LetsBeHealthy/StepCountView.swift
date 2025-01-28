@@ -23,6 +23,7 @@ struct StepCountView: View {
             
             Spacer()
         }
+        .background(Color(.systemBackground).opacity(0.2))
         .onAppear(perform: fetchStepCount)
     }
     

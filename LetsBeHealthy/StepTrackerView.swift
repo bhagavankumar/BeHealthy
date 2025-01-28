@@ -20,50 +20,64 @@ struct StepTrackerView: View {
                 endPoint: .bottom
             )
             .edgesIgnoringSafeArea(.all) // Covers the entire screen
-
-            VStack(spacing: 20) {
-                // App title
-                Text("Step Tracker")
-                    .font(.system(size: 40, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.top, 50)
-
-                // Steps display
-                VStack {
-                    Text("Today's Steps")
-                        .font(.title)
-                        .foregroundColor(.white.opacity(0.8))
-
-                    Text("\(steps)")
-                        .font(.system(size: 80, weight: .bold))
+            ScrollView{
+                VStack(spacing: 20) {
+                    // App title
+                    Text("Step Tracker")
+                        .font(.system(size: 40, weight: .bold))
                         .foregroundColor(.white)
-                        .padding(.top, 10)
+                        .padding(.top, 50)
+                    
+                    // Steps display
+                    VStack {
+                        Text("Today's Steps")
+                            .font(.title)
+                            .foregroundColor(.white.opacity(0.8))
+                        
+                        Text("\(steps)")
+                            .font(.system(size: 80, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.top, 10)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.2))
+                    .cornerRadius(20)
+                    .shadow(radius: 10)
+                    ProgressRingView(progress: Double(steps)/10000, color: .blue)
+                        .frame(width: 200, height: 200)
+                    
+                    // Refresh button
+                    Button(action: fetchSteps) {
+                        Text("Refresh Steps")
+                            .font(.headline)
+                            .padding()
+                            .frame(maxWidth: 200)
+                            .background(Color.white)
+                            .cornerRadius(10)
+                            .shadow(radius: 5)
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.top, 30)
+                    Button(action: shareAchievement) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .shadow(radius: 5)
+                    Spacer()
                 }
                 .padding()
-                .background(Color.white.opacity(0.2))
-                .cornerRadius(20)
-                .shadow(radius: 10)
-
-                // Refresh button
-                Button(action: fetchSteps) {
-                    Text("Refresh Steps")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: 200)
-                        .background(Color.white)
-                        .cornerRadius(10)
-                        .shadow(radius: 5)
-                        .foregroundColor(.blue)
-                }
-                .padding(.top, 30)
-
-                Spacer()
             }
-            .padding()
         }
+        .background(Color(.systemBackground).opacity(0.2))
         .onAppear(perform: fetchSteps) // Automatically fetch steps when the view appears
     }
-
+    // Sharing function
+    private func shareAchievement() {
+        let activityVC = UIActivityViewController(
+            activityItems: ["I just walked \(steps) steps today! 🚶♂️ #StepRewards"],
+            applicationActivities: nil
+        )
+        UIApplication.shared.windows.first?.rootViewController?.present(activityVC, animated: true)
+    }
     func fetchSteps() {
         let healthStore = HKHealthStore()
 
@@ -89,5 +103,30 @@ struct StepTrackerView: View {
         }
 
         healthStore.execute(query)
+    }
+}
+// Progress Ring View Component
+struct ProgressRingView: View {
+    let progress: Double
+    let color: Color
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(lineWidth: 20)
+                .opacity(0.3)
+                .foregroundColor(color)
+            
+            Circle()
+                .trim(from: 0, to: CGFloat(min(progress, 1.0)))
+                .stroke(style: StrokeStyle(lineWidth: 20, lineCap: .round))
+                .foregroundColor(color)
+                .rotationEffect(Angle(degrees: 270))
+            
+            Text("\(Int(progress * 100))%")
+                .font(.title)
+                .bold()
+                .foregroundColor(.white)
+        }
     }
 }

@@ -8,7 +8,8 @@ import FirebaseFirestore
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
     @Binding var user: User?
-    @State private var isLogin: Bool = true // Toggle between login and signup
+    @State private var isLogin: Bool = true
+    @State private var isForgotPasswordPresented = false
 
     var body: some View {
         ZStack {
@@ -26,7 +27,7 @@ struct LoginView: View {
                     .padding()
 
                 if isLogin {
-                    LoginOnlyView(isLoggedIn: $isLoggedIn, user: $user)
+                    LoginOnlyView(isLoggedIn: $isLoggedIn, user: $user, isForgotPasswordPresented: $isForgotPasswordPresented)
                 } else {
                     SignupView(isLoggedIn: $isLoggedIn, user: $user)
                 }
@@ -43,6 +44,9 @@ struct LoginView: View {
                 .padding()
             }
         }
+        .sheet(isPresented: $isForgotPasswordPresented) {
+            ForgotPasswordView()
+        }
     }
 }
 
@@ -50,110 +54,129 @@ struct LoginOnlyView: View {
     @Binding var isLoggedIn: Bool
     @Binding var user: User?
     @StateObject private var authViewModel = AuthViewModel()
-    
+    @Binding var isForgotPasswordPresented: Bool
     @State private var email: String = ""
     @State private var password: String = ""
-    
+
     var body: some View {
-        VStack(spacing: 20) {
-            TextField("Email", text: $email)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding()
-                .autocapitalization(.none)
-                .keyboardType(.emailAddress)
-            
-            SecureField("Password", text: $password)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding()
-            
-            Button("Login") {
-                authViewModel.login(email: email, password: password) { success, userDetails in
-                    if success, let userDetails = userDetails {
-                        DispatchQueue.main.async {
-                            self.user = User(
-                                firstName: userDetails.firstName,
-                                lastName: userDetails.lastName,
-                                email: userDetails.email,
-                                password: "" // We don't store passwords locally for security reasons
-                            )
-                            isLoggedIn = true
+        ScrollView {
+            VStack(spacing: 20) {
+                TextField("Email", text: $email)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+                    .autocapitalization(.none)
+                    .keyboardType(.emailAddress)
+
+                SecureField("Password", text: $password)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+
+                Button(action: {
+                    authViewModel.login(email: email, password: password) { success, userDetails in
+                        if success, let userDetails = userDetails {
+                            DispatchQueue.main.async {
+                                self.user = User(
+                                    firstName: userDetails.firstName,
+                                    lastName: userDetails.lastName,
+                                    email: userDetails.email,
+                                    password: ""
+                                )
+                                isLoggedIn = true
+                            }
                         }
                     }
-                }
-            }
-            .padding()
-            
-            if !authViewModel.errorMessage.isEmpty {
-                Text(authViewModel.errorMessage)
-                    .foregroundColor(.red)
-            }
-            
-            VStack(spacing: 20) {
-                GoogleSignInButton {
-                    handleGoogleSignIn()
+                }) {
+                    Text("Login")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(width: 200, height: 50) // Square-like shape
+                        .background(Color.blue) // Change color to match theme
+                        .cornerRadius(10) // Slight rounded edges like major apps
+                        .shadow(radius: 5) // Adds subtle shadow for depth
                 }
                 .padding()
-                
-                AppleSignInButton()
-                    .frame(height: 50)
-                    .onTapGesture {
-                        handleAppleSignIn()
+
+                Button(action: {
+                    isForgotPasswordPresented = true
+                }) {
+                    Text("Forgot Password?")
+                        .foregroundColor(.blue)
+                        .underline()
+                }
+                .padding()
+
+                if !authViewModel.errorMessage.isEmpty {
+                    Text(authViewModel.errorMessage)
+                        .foregroundColor(.red)
+                }
+
+                VStack(spacing: 20) {
+                    GoogleSignInButton {
+                        handleGoogleSignIn()
                     }
                     .padding()
+
+                    AppleSignInButton()
+                        .frame(height: 50)
+                        .onTapGesture {
+                            handleAppleSignIn()
+                        }
+                        .padding()
+                }
+                .padding()
             }
             .padding()
-        }
-    }
-    struct AppleSignInButton: UIViewRepresentable {
-        func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
-            return ASAuthorizationAppleIDButton(type: .signIn, style: .black)
-        }
-
-        func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {}
-    }
-
-    // 🔹 Google Sign-In
-    func handleGoogleSignIn() {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first?.rootViewController else {
-            print("No root view controller found.")
-            return
-        }
-
-        GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { signInResult, error in
-            if let error = error {
-                print("Google Sign-In failed: \(error.localizedDescription)")
-                return
-            }
-
-            guard let gUser = signInResult?.user else { return }
-            print("Google User Signed In: \(gUser.profile?.name ?? "Unknown")")
-
-            DispatchQueue.main.async {
-                self.user = User(
-                    firstName: gUser.profile?.givenName ?? "",
-                    lastName: gUser.profile?.familyName ?? "",
-                    email: gUser.profile?.email ?? "",
-                    password: ""
-                )
-                self.isLoggedIn = true
-            }
-        }
-    }
-
-    // 🔹 Apple Sign-In
-    func handleAppleSignIn() {
-        let provider = ASAuthorizationAppleIDProvider()
-        let request = provider.createRequest()
-        request.requestedScopes = [.fullName, .email]
-
-        let controller = ASAuthorizationController(authorizationRequests: [request])
-        controller.delegate = AppleSignInDelegate()
-        controller.performRequests()
+        
     }
 }
+        func handleGoogleSignIn() {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootViewController = windowScene.windows.first?.rootViewController else {
+                print("No root view controller found.")
+                return
+            }
+            
+            GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { signInResult, error in
+                if let error = error {
+                    print("Google Sign-In failed: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let gUser = signInResult?.user else { return }
+                print("Google User Signed In: \(gUser.profile?.name ?? "Unknown")")
+                
+                DispatchQueue.main.async {
+                    self.user = User(
+                        firstName: gUser.profile?.givenName ?? "",
+                        lastName: gUser.profile?.familyName ?? "",
+                        email: gUser.profile?.email ?? "",
+                        password: ""
+                    )
+                    self.isLoggedIn = true
+                }
+            }
+        }
+    }
 
-// 🔹 Apple Sign-In Delegate
+
+struct AppleSignInButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        return ASAuthorizationAppleIDButton(type: .signIn, style: .black)
+    }
+
+    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {}
+}
+
+func handleAppleSignIn() {
+    let provider = ASAuthorizationAppleIDProvider()
+    let request = provider.createRequest()
+    request.requestedScopes = [.fullName, .email]
+
+    let controller = ASAuthorizationController(authorizationRequests: [request])
+    controller.delegate = AppleSignInDelegate()
+    controller.performRequests()
+}
+
 class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
@@ -167,13 +190,9 @@ class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
             print("Email: \(email ?? "No email")")
         }
     }
-
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        print("Apple Sign-In Failed: \(error.localizedDescription)")
-    }
 }
 
-// 🔹 Signup View
+// ✅ Fully Fixed SignupView
 struct SignupView: View {
     @Binding var isLoggedIn: Bool
     @Binding var user: User?
@@ -190,17 +209,85 @@ struct SignupView: View {
     @State private var showPasswordMismatch: Bool = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            if isVerificationStep {
-                Text("Check your email for the verification link")
-                    .font(.headline)
-                    .foregroundColor(.green)
-                    .multilineTextAlignment(.center)
-                    .padding()
+        ScrollView {
+            VStack(spacing: 20) {
+                if isVerificationStep {
+                    Text("Check your email for the verification link")
+                        .font(.headline)
+                        .foregroundColor(.green)
+                        .multilineTextAlignment(.center)
+                        .padding()
 
-                Button("I have verified my email") {
-                    authViewModel.checkEmailVerification { success in
-                        if success {
+                    Button("I have verified my email") {
+                        authViewModel.checkEmailVerification { success in
+                            if success {
+                                authViewModel.signUp(
+                                    firstName: firstName,
+                                    lastName: lastName,
+                                    email: email,
+                                    password: password,
+                                    dateOfBirth: dateOfBirth,
+                                    referralCode: referralCode
+                                ) { signUpSuccess, userDetails in
+                                    if signUpSuccess, let userDetails = userDetails {
+                                        user = User(
+                                            firstName: userDetails.firstName,
+                                            lastName: userDetails.lastName,
+                                            email: userDetails.email,
+                                            password: ""
+                                        )
+                                        isLoggedIn = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                } else {
+                    HStack {
+                        TextField("First Name", text: $firstName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .padding()
+
+                        TextField("Last Name", text: $lastName)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .padding()
+                    }
+
+                    TextField("Email", text: $email)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+                        .autocapitalization(.none)
+                        .keyboardType(.emailAddress)
+
+                    DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
+                        .datePickerStyle(CompactDatePickerStyle())
+                        .padding()
+
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+
+                    SecureField("Confirm Password", text: $confirmPassword)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+
+                    if showPasswordMismatch {
+                        Text("❌ Passwords do not match")
+                            .foregroundColor(.red)
+                            .font(.footnote)
+                    }
+
+                    TextField("Referral Code (Optional)", text: $referralCode)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+                        .autocapitalization(.allCharacters)
+
+                    Button(action: {
+                        if password != confirmPassword {
+                            showPasswordMismatch = true
+                        } else {
+                            showPasswordMismatch = false
                             authViewModel.signUp(
                                 firstName: firstName,
                                 lastName: lastName,
@@ -208,96 +295,94 @@ struct SignupView: View {
                                 password: password,
                                 dateOfBirth: dateOfBirth,
                                 referralCode: referralCode
-                            ) { signUpSuccess in
-                                if signUpSuccess {
-                                    user = User(
-                                        firstName: firstName,
-                                        lastName: lastName,
-                                        email: email,
-                                        password: ""
-                                    )
-                                    isLoggedIn = true
+                            ) { success, userDetails in
+                                if success, let userDetails = userDetails {
+                                    DispatchQueue.main.async {
+                                        self.user = User(
+                                            firstName: userDetails.firstName,
+                                            lastName: userDetails.lastName,
+                                            email: userDetails.email,
+                                            password: ""
+                                        )
+                                        isLoggedIn = true
+                                    }
+                                    print("✅ User signed up successfully: \(userDetails.firstName) \(userDetails.lastName) - \(userDetails.email)")
+                                } else {
+                                    print("❌ Signup failed: \(authViewModel.errorMessage)")
                                 }
                             }
                         }
+                    }) {
+                        Text("Send Verification Link")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(width: 200, height: 50) // Square-like shape
+                            .background(Color.green) // Use green to indicate success/action
+                            .cornerRadius(10) // Slight rounded edges like major apps
+                            .shadow(radius: 5) // Adds subtle shadow for depth
                     }
-                }
-                .padding()
-            } else {
-                HStack {
-                    TextField("First Name", text: $firstName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .padding()
-
-                    TextField("Last Name", text: $lastName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .padding()
-                }
-
-                TextField("Email", text: $email)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
-                    .autocapitalization(.none)
-                    .keyboardType(.emailAddress)
+                    .disabled(password.isEmpty || confirmPassword.isEmpty || email.isEmpty)
 
-                DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
-                    .datePickerStyle(CompactDatePickerStyle())
-                    .padding()
-                
-                SecureField("Password", text: $password)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
-
-                SecureField("Confirm Password", text: $confirmPassword)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
-                
-                if showPasswordMismatch {
-                    Text("❌ Passwords do not match")
-                        .foregroundColor(.red)
-                        .font(.footnote)
-                }
-
-                TextField("Referral Code (Optional)", text: $referralCode)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding()
-                    .autocapitalization(.allCharacters)
-                
-                Button("Send Verification Link") {
-                    if password != confirmPassword {
-                        showPasswordMismatch = true
-                    } else {
-                        showPasswordMismatch = false
-                        authViewModel.signUp(
-                            firstName: firstName,
-                            lastName: lastName,
-                            email: email,
-                            password: password,
-                            dateOfBirth: dateOfBirth,
-                            referralCode: referralCode
-                        ) { success in
-                            if success {
-                                isVerificationStep = true
-                            }
-                        }
+                    if !authViewModel.errorMessage.isEmpty {
+                        Text(authViewModel.errorMessage)
+                            .foregroundColor(.red)
+                            .font(.footnote)
                     }
-                }
-                .padding()
-                .disabled(password.isEmpty || confirmPassword.isEmpty || email.isEmpty)
-
-                if !authViewModel.errorMessage.isEmpty {
-                    Text(authViewModel.errorMessage)
-                        .foregroundColor(.red)
-                        .font(.footnote)
                 }
             }
+            .padding()
+            .background(Color(.systemBackground).opacity(0.2))
+        }
+    }
+}
+// 🔹 Forgot Password View
+struct ForgotPasswordView: View {
+    @State private var email: String = ""
+    @State private var resetMessage: String = ""
+    @State private var isSuccess: Bool = false
+    @Environment(\.presentationMode) var presentationMode
+
+    var body: some View {
+        VStack {
+            Text("Reset Password")
+                .font(.largeTitle)
+                .padding()
+
+            TextField("Enter your email", text: $email)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding()
+                .autocapitalization(.none)
+
+            Button("Send Reset Link") {
+                sendPasswordReset()
+            }
+            .padding()
+            .disabled(email.isEmpty)
+
+            if !resetMessage.isEmpty {
+                Text(resetMessage)
+                    .foregroundColor(isSuccess ? .green : .red)
+                    .padding()
+            }
+
+            Button("Close") {
+                presentationMode.wrappedValue.dismiss()
+            }
+            .padding()
         }
         .padding()
     }
-}
 
-struct LoginSignupView_Previews: PreviewProvider {
-    static var previews: some View {
-        LoginView(isLoggedIn: .constant(false), user: .constant(nil))
+    func sendPasswordReset() {
+        Auth.auth().sendPasswordReset(withEmail: email) { error in
+            if let error = error {
+                resetMessage = "❌ Failed: \(error.localizedDescription)"
+                isSuccess = false
+            } else {
+                resetMessage = "✅ Reset link sent! Check your email."
+                isSuccess = true
+            }
+        }
     }
 }

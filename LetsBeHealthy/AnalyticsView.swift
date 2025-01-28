@@ -2,10 +2,6 @@ import SwiftUI
 import HealthKit
 import Charts
 
-import SwiftUI
-import HealthKit
-import Charts
-
 struct AnalyticsView: View {
     @State private var dailySteps: Double = 0.0
     @State private var weeklySteps: Double = 0.0
@@ -46,6 +42,24 @@ struct AnalyticsView: View {
                         if let peakHour = peakActivityHour {
                             analyticsTile(title: "Peak Activity Hour", value: Double(peakHour), unit: "hr")
                         }
+                        // Add this after the peak activity hour tile
+                        VStack {
+                            Text("Weekly Step Trends")
+                                .font(.title2)
+                                .foregroundColor(.white)
+                            
+                            Chart(weeklyStepData, id: \.day) { data in
+                                BarMark(
+                                    x: .value("Day", data.day),
+                                    y: .value("Steps", data.steps)
+                                )
+                                .foregroundStyle(LinearGradient(gradient: Gradient(colors: [.blue, .purple]), startPoint: .bottom, endPoint: .top))
+                            }
+                            .frame(height: 200)
+                            .padding()
+                        }
+                        .background(Color.white.opacity(0.2))
+                        .cornerRadius(15)
                     }
                     
                     .padding(.horizontal)
@@ -74,6 +88,7 @@ struct AnalyticsView: View {
                 .padding()
             }
         }
+        .background(Color(.systemBackground).opacity(0.2))
         .onAppear(perform: fetchStepData) // Fetch analytics data when the view appears
     }
 

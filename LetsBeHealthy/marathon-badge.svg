@@ -1,0 +1,12 @@
+<!-- Add to Assets.xcassets as "marathon-badge" -->
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M120 20L200 60V180L120 220L40 180V60L120 20Z" fill="url(#goldGradient)" stroke="#FFF" stroke-width="4"/>
+  <path d="M80 80L100 60L120 80L140 60L160 80" stroke="#FFF" stroke-width="4"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-family="Arial" font-weight="bold" font-size="48">10k</text>
+  <defs>
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#D4AF37"/>
+    </linearGradient>
+  </defs>
+</svg>

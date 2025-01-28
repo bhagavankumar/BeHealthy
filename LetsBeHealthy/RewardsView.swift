@@ -1,9 +1,10 @@
 import SwiftUI
 import HealthKit
+import UIKit
 
 struct RewardsView: View {
     @State private var totalStepCoins: Int = UserDefaults.standard.integer(forKey: "totalStepCoins") // Persistent StepCoins
-    @State private var todayStepCoins: Int = 0
+    @State private var totalSteps: Int = UserDefaults.standard.integer(forKey: "totalSteps")
     @State private var stepCount: Double = 0.0
     @State private var rewardTier: String = "Bronze"
     @State private var showNotification: Bool = false
@@ -15,7 +16,13 @@ struct RewardsView: View {
         (name: "Free Gym Pass", cost: 1000),
         (name: "Fitness Band Giveaway Entry", cost: 5000)
     ]
-
+    let achievements = [
+        (name: "First 1K", image: "1k-badge", threshold: 1000),
+        (name: "Marathoner", image: "marathon-badge", threshold: 10000),
+        (name: "100K Club", image: "100k-badge", threshold: 100_000),
+        (name: "1 Million Steps", image: "1m-badge", threshold: 1_000_000)
+    ]
+    
     var body: some View {
         ZStack {
             // Background gradient
@@ -24,20 +31,20 @@ struct RewardsView: View {
                            endPoint: .bottom
             )
             .edgesIgnoringSafeArea(.all)
-
+            
             ScrollView {
                 VStack(spacing: 20) {
                     Text("Your Rewards")
                         .font(.largeTitle)
                         .foregroundColor(.white)
                         .padding()
-
-                    // StepCoins Display (Total Lifetime StepCoins)
+                    
+                    // Total StepCoins Earned (Automatically Updated)
                     VStack {
                         Text("Total StepCoins Earned")
                             .font(.title2)
                             .foregroundColor(.white.opacity(0.8))
-
+                        
                         Text("\(totalStepCoins) 💰")
                             .font(.system(size: 50, weight: .bold))
                             .foregroundColor(.white)
@@ -47,29 +54,13 @@ struct RewardsView: View {
                     .background(Color.white.opacity(0.2))
                     .cornerRadius(20)
                     .shadow(radius: 10)
-
-                    // StepCoins Earned Today
-                    VStack {
-                        Text("StepCoins Earned Today")
-                            .font(.title2)
-                            .foregroundColor(.white.opacity(0.8))
-
-                        Text("\(todayStepCoins) 💰")
-                            .font(.system(size: 50, weight: .bold))
-                            .foregroundColor(.yellow)
-                            .padding(.top, 5)
-                    }
-                    .padding()
-                    .background(Color.white.opacity(0.2))
-                    .cornerRadius(20)
-                    .shadow(radius: 10)
-
+                    
                     // Reward Tier Indicator (Bronze, Silver, Gold)
                     VStack {
                         Text("Reward Tier")
                             .font(.title2)
                             .foregroundColor(.white.opacity(0.8))
-
+                        
                         Text("\(rewardTier)")
                             .font(.title)
                             .bold()
@@ -80,25 +71,25 @@ struct RewardsView: View {
                     .background(Color.white.opacity(0.2))
                     .cornerRadius(20)
                     .shadow(radius: 10)
-
+                    
                     // Step Count View (Today's Steps)
                     StepCountView(stepCount: $stepCount)
                         .onChange(of: stepCount) { newValue, oldValue in
                             print("Step count changed from \(oldValue) to \(newValue)")
-                            updateTodayStepCoins()
+                            updateTotalStepCoins()
                         }
-
+                    
                     // Weekly & Monthly Challenges
                     VStack {
                         Text("Challenges")
                             .font(.title2)
                             .foregroundColor(.white.opacity(0.8))
-
+                        
                         Text("Walk 50,000 Steps This Week: Earn 500 StepCoins!")
                             .font(.caption)
-                            .foregroundColor(todayStepCoins >= 500 ? .green : .white)
+                            .foregroundColor(totalStepCoins >= 500 ? .green : .white)
                             .padding()
-
+                        
                         Text("Walk 200,000 Steps This Month: Earn 2000 StepCoins!")
                             .font(.caption)
                             .foregroundColor(totalStepCoins >= 2000 ? .green : .white)
@@ -108,13 +99,35 @@ struct RewardsView: View {
                     .background(Color.white.opacity(0.2))
                     .cornerRadius(20)
                     .shadow(radius: 10)
-
+                    
+                    //Achievements
+                    VStack {
+                                            Text("Achievements 🏆")
+                                                .font(.title2)
+                                                .foregroundColor(.white)
+                                            
+                                            ScrollView(.horizontal) {
+                                                HStack {
+                                                    ForEach(achievements.filter { totalSteps >= $0.threshold }, id: \.name) { achievement in
+                                                        VStack {
+                                                            Image(achievement.image)
+                                                                .resizable()
+                                                                .frame(width: 80, height: 80)
+                                                            Text(achievement.name)
+                                                                .foregroundColor(.white)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                    .padding()
+                    
                     // 🔹 Reward Store Section
                     VStack {
                         Text("Reward Store 🎁")
                             .font(.title2)
                             .foregroundColor(.white.opacity(0.8))
-
+                        
                         ForEach(rewardItems, id: \.name) { item in
                             HStack {
                                 Text(item.name)
@@ -138,7 +151,7 @@ struct RewardsView: View {
                     .background(Color.white.opacity(0.2))
                     .cornerRadius(20)
                     .shadow(radius: 10)
-
+                    
                     // 🔹 Achievement Notifications
                     if showNotification {
                         Text(notificationMessage)
@@ -149,86 +162,43 @@ struct RewardsView: View {
                             .cornerRadius(10)
                             .transition(.slide)
                     }
-                    
-                    // Redeem Button
-                    Button(action: redeemStepCoins) {
-                        Text("Redeem StepCoins")
-                            .font(.headline)
-                            .padding()
-                            .frame(maxWidth: 200)
-                            .background(Color.white)
-                            .foregroundColor(.red)
-                            .cornerRadius(10)
-                            .shadow(radius: 5)
-                    }
-                    .padding(.top, 10)
                 }
                 .padding()
             }
         }
         .onAppear {
-            fetchSteps()
-            
+            fetchDailySteps()
+            fetchTotalStepsSinceInstallation()
         }
+        .background(Color(.systemBackground).opacity(0.2))
     }
-    private func getCurrentDateString() -> String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd" // 📌 Format: "2025-01-12"
-        return dateFormatter.string(from: Date())
-    }
-    // 🔹 Updates today's StepCoins based on step count
-    private func updateTodayStepCoins() {
+    
+    private func updateTotalStepCoins() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let lastUpdateDate = UserDefaults.standard.object(forKey: UserDefaults.lastCoinUpdateDateKey) as? Date ?? Date.distantPast
         
-        if stepCount > 0 {
-            let currentDate = getCurrentDateString() // 📌 Get today's date as a string
-            
-            let lastUpdatedDate = UserDefaults.standard.string(forKey: "lastStepCoinUpdateDate")
-            
-             //✅ Check if StepCoins were already updated today
-            if lastUpdatedDate == currentDate {
-                print("✅ StepCoins already updated today. No duplicate earnings.")
-                return
-            }
-            
-            // ✅ Calculate StepCoins and update only once per day
-            let newStepCoins = Int(stepCount / 100) // Example: 100 steps = 1 StepCoin
-            todayStepCoins = newStepCoins
-            
-            // ✅ Save today's StepCoins & update the last update date
-            UserDefaults.standard.set(todayStepCoins, forKey: "todayStepCoins")
-            UserDefaults.standard.set(currentDate, forKey: "lastStepCoinUpdateDate")
-            
-            print("🎉 StepCoins updated successfully: \(todayStepCoins) StepCoins earned today!")
-        }
-        else {
-            print("Steps not fetched yet")
-        }
-    }
-    // 🔹 Function to Redeem Today's StepCoins and Add to Total
-    private func redeemStepCoins() {
-        if todayStepCoins > 0 {
-            totalStepCoins += todayStepCoins // Move today's StepCoins to total
-            todayStepCoins = 0 // Reset today's StepCoins
-            
-            // Save the updated total in persistent storage
+        // Only update once per day
+        if !calendar.isDate(today, inSameDayAs: lastUpdateDate) {
+            let newStepCoins = Int(stepCount / 100)
+            totalStepCoins += newStepCoins
+            UserDefaults.standard.set(today, forKey: UserDefaults.lastCoinUpdateDateKey)
             UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
-            
-            showNotificationMessage("StepCoins redeemed! 🎉")
-        } else {
-            showNotificationMessage("No StepCoins to redeem! ❌")
+            print("🎉 Daily StepCoins added: \(newStepCoins)")
         }
     }
-
-
+    
     // 🔹 Reward Redemption Logic
     private func redeemReward(itemCost: Int) {
         if totalStepCoins >= itemCost {
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
             totalStepCoins -= itemCost
             UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
             showNotificationMessage("Reward Redeemed Successfully! 🎉")
         }
     }
-
+    
     // 🔹 Achievement Notification
     private func showNotificationMessage(_ message: String) {
         notificationMessage = message
@@ -237,23 +207,56 @@ struct RewardsView: View {
             showNotification = false
         }
     }
-    private func fetchSteps() {
+    
+    
+    // 🔹 Fetch Today's Steps from HealthKit
+    private func fetchDailySteps() {
         let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
         let now = Date()
         let startOfDay = Calendar.current.startOfDay(for: now)
-
+        
         let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
-
+        
         let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
             guard let sum = result?.sumQuantity() else {
                 print("❌ Failed to fetch steps: \(error?.localizedDescription ?? "Unknown Error")")
                 return
             }
-
+            
             DispatchQueue.main.async {
                 self.stepCount = sum.doubleValue(for: HKUnit.count()) // ✅ Update stepCount in RewardsView
+                self.updateTotalStepCoins() // ✅ Update total StepCoins
             }
         }
         HKHealthStore().execute(query)
     }
+    // New HealthKit query for total steps since first launch
+      private func fetchTotalStepsSinceInstallation() {
+          guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount),
+                let firstLaunchDate = UserDefaults.standard.object(forKey: "firstLaunchDate") as? Date else {
+              return
+          }
+
+          let predicate = HKQuery.predicateForSamples(withStart: firstLaunchDate, end: Date(), options: .strictStartDate)
+          
+          let query = HKStatisticsQuery(quantityType: stepType,
+                                      quantitySamplePredicate: predicate,
+                                      options: .cumulativeSum) { _, result, error in
+              guard let sum = result?.sumQuantity() else {
+                  print("Total steps error: \(error?.localizedDescription ?? "N/A")")
+                  return
+              }
+              
+              let steps = Int(sum.doubleValue(for: HKUnit.count()))
+              DispatchQueue.main.async {
+                  self.totalSteps = steps
+                  UserDefaults.standard.set(steps, forKey: "totalSteps")
+              }
+          }
+          HKHealthStore().execute(query)
+      }
+}
+extension UserDefaults {
+    static let lastCoinUpdateDateKey = "lastCoinUpdateDate"
+    static let todaysStepCoinKey = "todaysStepCoin"
 }

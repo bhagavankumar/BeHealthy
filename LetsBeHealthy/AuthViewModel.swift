@@ -11,6 +11,7 @@ import FirebaseAuth
 import FirebaseFirestore
 
 class AuthViewModel: ObservableObject {
+    @StateObject private var authViewModel = AuthViewModel()
     @Published var users: [User] = [] {
         didSet {
             saveUsers()
@@ -35,38 +36,86 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    func signUp(firstName: String, lastName: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool) -> Void) {
+    func signUp(firstName: String, lastName: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool, User?) -> Void) {
         Auth.auth().createUser(withEmail: email, password: password) { result, error in
             if let error = error {
-                self.errorMessage = "❌ Signup failed: \(error.localizedDescription)"
-                completion(false)
+                DispatchQueue.main.async {
+                    self.errorMessage = "❌ Signup failed: \(error.localizedDescription)"
+                }
+                print("❌ Firebase Auth Error: \(error.localizedDescription)")
+                completion(false,nil)
                 return
             }
 
             guard let user = result?.user else {
-                completion(false)
+                DispatchQueue.main.async {
+                    self.errorMessage = "❌ User creation failed. Try again."
+                }
+                completion(false,nil)
                 return
             }
+            self.saveUserToFirestore(uid: user.uid, firstName: firstName, lastName: lastName, email: email, dateOfBirth: dateOfBirth, referralCode: referralCode)
+
+                    let newUser = User(firstName: firstName, lastName: lastName, email: email, password: "")
+                    completion(true, newUser)
+
+            print("✅ User created with UID: \(user.uid)")
 
             let userData: [String: Any] = [
                 "firstName": firstName,
                 "lastName": lastName,
                 "email": email,
-                "dateOfBirth": dateOfBirth.timeIntervalSince1970, // Store as timestamp
+                "dateOfBirth": dateOfBirth.timeIntervalSince1970,
                 "referralCode": referralCode ?? ""
             ]
 
-            Firestore.firestore().collection("users").document(user.uid).setData(userData) { error in
+            let db = Firestore.firestore()
+
+            db.collection("users").document(user.uid).setData(userData) { error in
                 if let error = error {
-                    self.errorMessage = "❌ Failed to save user data: \(error.localizedDescription)"
-                    completion(false)
+                    DispatchQueue.main.async {
+                        self.errorMessage = "❌ Failed to save user data: \(error.localizedDescription)"
+                    }
+                    print("❌ Firestore Error: \(error.localizedDescription)")
+
+                    // **Rollback: Delete the user from FirebaseAuth if Firestore write fails**
+                    user.delete { deleteError in
+                        if let deleteError = deleteError {
+                            print("⚠️ Failed to delete user from Auth: \(deleteError.localizedDescription)")
+                        } else {
+                            print("🗑 User deleted from Auth due to Firestore failure")
+                        }
+                    }
+                    completion(false,nil)
                 } else {
-                    completion(true)
+                    print("✅ User data saved to Firestore successfully!")
+                    completion(true,nil)
                 }
+            }
+            
+        }
+    }
+    private func saveUserToFirestore(uid: String, firstName: String, lastName: String, email: String, dateOfBirth: Date, referralCode: String?) {
+        let db = Firestore.firestore()
+        let userRef = db.collection("users").document(uid)
+        
+        let userData: [String: Any] = [
+            "firstName": firstName,
+            "lastName": lastName,
+            "email": email,
+            "dateOfBirth": Timestamp(date: dateOfBirth),
+            "referralCode": referralCode ?? "",
+            "createdAt": Timestamp(date: Date())
+        ]
+        
+        userRef.setData(userData) { error in
+            if let error = error {
+                print("❌ Failed to save user data: \(error.localizedDescription)")
+            } else {
+                print("✅ User data successfully saved in Firestore!")
             }
         }
     }
-
     // 🔹 Resend Email Verification
     func resendEmailVerification(completion: @escaping (Bool) -> Void) {
         if let user = Auth.auth().currentUser {
@@ -110,32 +159,42 @@ class AuthViewModel: ObservableObject {
     func login(email: String, password: String, completion: @escaping (Bool, User?) -> Void) {
         Auth.auth().signIn(withEmail: email, password: password) { authResult, error in
             if let error = error {
+                print("❌ Login failed: \(error.localizedDescription)")
                 self.errorMessage = "❌ Login failed: \(error.localizedDescription)"
                 completion(false, nil)
                 return
             }
 
             guard let userId = authResult?.user.uid else {
+                print("❌ Failed to retrieve user UID")
                 self.errorMessage = "❌ User ID not found"
                 completion(false, nil)
                 return
             }
 
-            // Fetch user details from Firestore after login
+            print("✅ User signed in with UID: \(userId)")
+
+            // Retrieve user details from Firestore
             let db = Firestore.firestore()
             db.collection("users").document(userId).getDocument { document, error in
-                if let document = document, document.exists, let userData = document.data() {
-                    let firstName = userData["firstName"] as? String ?? ""
-                    let lastName = userData["lastName"] as? String ?? ""
-                    
-                    let loggedInUser = User(
-                        firstName: firstName,
-                        lastName: lastName,
-                        email: email,
-                        password: "" // Password should never be stored in plaintext
-                    )
-                    completion(true, loggedInUser)
+                if let error = error {
+                    print("❌ Failed to retrieve user details: \(error.localizedDescription)")
+                    completion(false, nil)
+                    return
+                }
+
+                if let document = document, document.exists {
+                    let data = document.data()
+                    print("✅ User details fetched: \(data ?? [:])")
+
+                    let firstName = data?["firstName"] as? String ?? ""
+                    let lastName = data?["lastName"] as? String ?? ""
+                    let email = data?["email"] as? String ?? ""
+
+                    let user = User(firstName: firstName, lastName: lastName, email: email, password: "")
+                    completion(true, user)
                 } else {
+                    print("❌ User document does not exist in Firestore!")
                     self.errorMessage = "❌ Failed to retrieve user details"
                     completion(false, nil)
                 }
@@ -143,3 +202,4 @@ class AuthViewModel: ObservableObject {
         }
     }
 }
+

@@ -1,0 +1,26 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g filter="url(#trophy_glow)">
+    <!-- Trophy Base -->
+    <path d="M120 205C160.421 205 194 185.42 194 161.538H46C46 185.42 79.5789 205 120 205Z" fill="#FFD700"/>
+    <!-- Trophy Cup -->
+    <path d="M166 61.5H74L85 161H155L166 61.5Z" fill="url(#trophy_grad)"/>
+    <!-- Handle -->
+    <path d="M85 72C85 72 73.5 80 74 96.5M155 72C155 72 166.5 80 166 96.5" stroke="#FFD700" stroke-width="8"/>
+  </g>
+  
+  <!-- 100K Text -->
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="32" font-weight="700" font-family="Arial">
+    100K
+  </text>
+
+  <defs>
+    <linearGradient id="trophy_grad" x1="120" y1="61" x2="120" y2="161" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD700"/>
+      <stop offset="1" stop-color="#E5C100"/>
+    </linearGradient>
+    
+    <filter id="trophy_glow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#FFD700"/>
+    </filter>
+  </defs>
+</svg>

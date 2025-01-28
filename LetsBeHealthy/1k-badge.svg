@@ -1,0 +1,12 @@
+<!-- Add to Assets.xcassets as "1k-badge" -->
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="120" cy="120" r="115" fill="url(#bronzeGradient)" stroke="#FFF" stroke-width="4"/>
+  <path d="M120 60L135 90H165L140 110L155 140L120 120L85 140L100 110L75 90H105L120 60Z" fill="#FFF"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-family="Arial" font-weight="bold" font-size="48">1K</text>
+  <defs>
+    <linearGradient id="bronzeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#CD7F32"/>
+      <stop offset="100%" stop-color="#804A00"/>
+    </linearGradient>
+  </defs>
+</svg>

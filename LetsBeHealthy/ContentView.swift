@@ -31,6 +31,7 @@ struct ContentView: View {
                 LoginView(isLoggedIn: $isLoggedIn, user: self.$user)
             }
         }
+        .background(Color(.systemBackground).opacity(0.2))
     }
 }
 
