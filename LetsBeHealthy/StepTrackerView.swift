@@ -65,6 +65,7 @@ struct StepTrackerView: View {
                     .shadow(radius: 5)
                 }
                 .padding()
+                .frame(maxWidth: .infinity)
             }
         }
         .background(Color(.systemBackground).opacity(0.2))

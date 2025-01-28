@@ -143,33 +143,51 @@ struct LoginOnlyView: View {
             
             controller.performRequests()
         }
-        func handleGoogleSignIn() {
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let rootViewController = windowScene.windows.first?.rootViewController else {
-                print("No root view controller found.")
+    func handleGoogleSignIn() {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else { return }
+        
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { [self] signInResult, error in
+            
+            if let error = error {
+                print("Google Sign-In failed: \(error.localizedDescription)")
                 return
             }
             
-            GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { signInResult, error in
+            guard let gUser = signInResult?.user,
+                  let idToken = gUser.idToken?.tokenString else { return }
+            
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idToken,
+                accessToken: gUser.accessToken.tokenString
+            )
+            
+            Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
-                    print("Google Sign-In failed: \(error.localizedDescription)")
+                    print("Firebase auth error: \(error.localizedDescription)")
                     return
                 }
                 
-                guard let gUser = signInResult?.user else { return }
-                print("Google User Signed In: \(gUser.profile?.name ?? "Unknown")")
+                guard let uid = authResult?.user.uid else { return }
                 
-                DispatchQueue.main.async {
-                    self.user = User(
-                        firstName: gUser.profile?.givenName ?? "",
-                        lastName: gUser.profile?.familyName ?? "",
-                        email: gUser.profile?.email ?? "",
-                        password: ""
-                    )
-                    self.isLoggedIn = true
+                let newUser = User(
+                    firstName: gUser.profile?.givenName ?? "",
+                    lastName: gUser.profile?.familyName ?? "",
+                    email: gUser.profile?.email ?? "",
+                    password: ""
+                )
+                
+                self.authViewModel.handleSocialSignIn(user: newUser, uid: uid) { success in
+                    if success {
+                        DispatchQueue.main.async {
+                            self.user = newUser
+                            self.isLoggedIn = true
+                        }
+                    }
                 }
             }
         }
+    }
     }
 
 
