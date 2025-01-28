@@ -57,7 +57,8 @@ struct LoginOnlyView: View {
     @Binding var isForgotPasswordPresented: Bool
     @State private var email: String = ""
     @State private var password: String = ""
-
+    @State private var appleAuthDelegate: AppleSignInDelegate?
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -129,6 +130,19 @@ struct LoginOnlyView: View {
         
     }
 }
+    func handleAppleSignIn() {
+            let provider = ASAuthorizationAppleIDProvider()
+            let request = provider.createRequest()
+            request.requestedScopes = [.fullName, .email]
+
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            
+            // Create and retain the delegate within LoginOnlyView's scope
+            appleAuthDelegate = AppleSignInDelegate()
+            controller.delegate = appleAuthDelegate
+            
+            controller.performRequests()
+        }
         func handleGoogleSignIn() {
             guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                   let rootViewController = windowScene.windows.first?.rootViewController else {
@@ -167,17 +181,8 @@ struct AppleSignInButton: UIViewRepresentable {
     func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {}
 }
 
-func handleAppleSignIn() {
-    let provider = ASAuthorizationAppleIDProvider()
-    let request = provider.createRequest()
-    request.requestedScopes = [.fullName, .email]
-
-    let controller = ASAuthorizationController(authorizationRequests: [request])
-    controller.delegate = AppleSignInDelegate()
-    controller.performRequests()
-}
-
 class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
+    weak var parentController: UIViewController?
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
             let userIdentifier = appleIDCredential.user

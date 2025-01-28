@@ -58,11 +58,11 @@ struct StepTrackerView: View {
                             .foregroundColor(.blue)
                     }
                     .padding(.top, 30)
+                    
                     Button(action: shareAchievement) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     .shadow(radius: 5)
-                    Spacer()
                 }
                 .padding()
             }
@@ -76,7 +76,11 @@ struct StepTrackerView: View {
             activityItems: ["I just walked \(steps) steps today! 🚶♂️ #StepRewards"],
             applicationActivities: nil
         )
-        UIApplication.shared.windows.first?.rootViewController?.present(activityVC, animated: true)
+        if let windowScene = UIApplication.shared.connectedScenes.first(where: {
+            $0.activationState == .foregroundActive && $0 is UIWindowScene
+        }) as? UIWindowScene {
+            windowScene.windows.first(where: \.isKeyWindow)?.rootViewController?.present(activityVC, animated: true)
+        }
     }
     func fetchSteps() {
         let healthStore = HKHealthStore()

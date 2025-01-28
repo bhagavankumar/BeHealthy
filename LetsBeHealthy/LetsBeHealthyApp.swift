@@ -31,12 +31,16 @@ struct LetsBeHealthyApp: App {
                 }
                 .onAppear {
                     GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
-                        if let user {
-                            self.user = .init(firstName: user.profile?.name ?? "", lastName: "", email: user.profile?.email ?? "", password: "")
-                            LoginView(isLoggedIn: $isLoggedIn, user: $user)
+                        if let user = user {
+                            self.user = User(
+                                firstName: user.profile?.givenName ?? "",
+                                lastName: user.profile?.familyName ?? "",
+                                email: user.profile?.email ?? "",
+                                password: ""
+                            )
+                            isLoggedIn = true
                         }
                     }
-
                 }
         }
     }
