@@ -1,16 +1,14 @@
 import SwiftUI
+import FirebaseAuth
 import GoogleSignIn
 struct ContentView: View {
     
     @State private var isLoggedIn: Bool = false
-    @Binding var user: User?
+    @Binding var user: AppUser?
 
     var body: some View {
         NavigationView {
-//            if let user {
-//                Text("Hi there, \(user.name)")
-//            }
-            if let user{
+            if let user {
                 VStack {
                     if isLoggedIn {
                         Text("Hi there, \(user.lastName)")
@@ -28,7 +26,7 @@ struct ContentView: View {
                 }
             }
             else {
-                LoginView(isLoggedIn: $isLoggedIn, user: self.$user)
+                LoginView(isLoggedIn: $isLoggedIn, user: $user)
             }
         }
         .background(Color(.systemBackground).opacity(0.2))

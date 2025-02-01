@@ -7,7 +7,7 @@ import FirebaseFirestore
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
-    @Binding var user: User?
+    @Binding var user: AppUser?
     @State private var isLogin: Bool = true
     @State private var isForgotPasswordPresented = false
 
@@ -52,7 +52,7 @@ struct LoginView: View {
 
 struct LoginOnlyView: View {
     @Binding var isLoggedIn: Bool
-    @Binding var user: User?
+    @Binding var user: AppUser?
     @StateObject private var authViewModel = AuthViewModel()
     @Binding var isForgotPasswordPresented: Bool
     @State private var email: String = ""
@@ -72,28 +72,23 @@ struct LoginOnlyView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
 
-                Button(action: {
-                    authViewModel.login(email: email, password: password) { success, userDetails in
-                        if success, let userDetails = userDetails {
-                            DispatchQueue.main.async {
-                                self.user = User(
-                                    firstName: userDetails.firstName,
-                                    lastName: userDetails.lastName,
-                                    email: userDetails.email,
-                                    password: ""
-                                )
-                                isLoggedIn = true
-                            }
+                Button(action:
+                        {
+                    AuthManager.shared.signIn(email: email, password: password) { error in
+                        if let error = error {
+                            print("❌ Login failed: \(error.localizedDescription)")
+                        } else {
+                            isLoggedIn = true
                         }
                     }
                 }) {
                     Text("Login")
                         .font(.headline)
                         .foregroundColor(.white)
-                        .frame(width: 200, height: 50) // Square-like shape
-                        .background(Color.blue) // Change color to match theme
-                        .cornerRadius(10) // Slight rounded edges like major apps
-                        .shadow(radius: 5) // Adds subtle shadow for depth
+                        .frame(width: 200, height: 50)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                        .shadow(radius: 5)
                 }
                 .padding()
 
@@ -170,11 +165,10 @@ struct LoginOnlyView: View {
                 
                 guard let uid = authResult?.user.uid else { return }
                 
-                let newUser = User(
+                let newUser = AppUser(
                     firstName: gUser.profile?.givenName ?? "",
                     lastName: gUser.profile?.familyName ?? "",
-                    email: gUser.profile?.email ?? "",
-                    password: ""
+                    email: gUser.profile?.email ?? ""
                 )
                 
                 self.authViewModel.handleSocialSignIn(user: newUser, uid: uid) { success in
@@ -218,7 +212,7 @@ class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
 // ✅ Fully Fixed SignupView
 struct SignupView: View {
     @Binding var isLoggedIn: Bool
-    @Binding var user: User?
+    @Binding var user: AppUser?
     @StateObject private var authViewModel = AuthViewModel()
 
     @State private var firstName: String = ""
@@ -244,20 +238,12 @@ struct SignupView: View {
                     Button("I have verified my email") {
                         authViewModel.checkEmailVerification { success in
                             if success {
-                                authViewModel.signUp(
-                                    firstName: firstName,
-                                    lastName: lastName,
-                                    email: email,
-                                    password: password,
-                                    dateOfBirth: dateOfBirth,
-                                    referralCode: referralCode
-                                ) { signUpSuccess, userDetails in
-                                    if signUpSuccess, let userDetails = userDetails {
-                                        user = User(
+                                authViewModel.login(email: email, password: password) { loginSuccess, userDetails in
+                                    if loginSuccess, let userDetails = userDetails {
+                                        self.user = AppUser(
                                             firstName: userDetails.firstName,
                                             lastName: userDetails.lastName,
-                                            email: userDetails.email,
-                                            password: ""
+                                            email: userDetails.email
                                         )
                                         isLoggedIn = true
                                     }
@@ -321,11 +307,10 @@ struct SignupView: View {
                             ) { success, userDetails in
                                 if success, let userDetails = userDetails {
                                     DispatchQueue.main.async {
-                                        self.user = User(
+                                        self.user = AppUser(
                                             firstName: userDetails.firstName,
                                             lastName: userDetails.lastName,
-                                            email: userDetails.email,
-                                            password: ""
+                                            email: userDetails.email
                                         )
                                         isLoggedIn = true
                                     }

@@ -11,7 +11,7 @@ import FirebaseAuth
 import FirebaseFirestore
 
 class AuthViewModel: ObservableObject {
-    @Published var users: [User] = [] {
+    @Published var users: [AppUser] = [] {
         didSet {
             saveUsers()
         }
@@ -30,12 +30,12 @@ class AuthViewModel: ObservableObject {
     
     private func loadUsers() {
         if let data = UserDefaults.standard.data(forKey: "users"),
-           let decodedUsers = try? JSONDecoder().decode([User].self, from: data) {
+           let decodedUsers = try? JSONDecoder().decode([AppUser].self, from: data) {
             users = decodedUsers
         }
     }
 
-    func signUp(firstName: String, lastName: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool, User?) -> Void) {
+    func signUp(firstName: String, lastName: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool, AppUser?) -> Void) {
         Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
             guard let self = self else { return }
             
@@ -56,32 +56,33 @@ class AuthViewModel: ObservableObject {
                     completion(false, nil)
                     return
                 }
-//                do {
-//                                try Auth.auth().signOut()
-//                                self.errorMessage = ""
-//                    completion(true, User(firstName: firstName, lastName: lastName, email: email, password: <#String#>))
-//                            } catch {
-//                                self.errorMessage = "Failed to sign out: \(error.localizedDescription)"
-//                                completion(false, nil)
-//                            }
+                do {
+                    try Auth.auth().signOut()
+                    self.errorMessage = ""
+                    completion(true, AppUser(firstName: firstName, lastName: lastName, email: email))
+                } catch {
+                    self.errorMessage = "Failed to sign out: \(error.localizedDescription)"
+                    completion(false, nil)
+                }
+                
+                
+                self.saveUserToFirestore(
+                    uid: user.uid,
+                    firstName: firstName,
+                    lastName: lastName,
+                    email: email,
+                    dateOfBirth: dateOfBirth,
+                    referralCode: referralCode
+                ) { success in
+                    if success {
+                        let newUser = AppUser(firstName: firstName, lastName: lastName, email: email)
+                        completion(true, newUser)
+                        print("✅ User created with UID: \(user.uid)")
+                    } else {
+                        user.delete { _ in
+                            self.handleError(message: "❌ Failed to save user data. Account removed.")
+                            completion(false, nil)
                         }
-            
-            self.saveUserToFirestore(
-                uid: user.uid,
-                firstName: firstName,
-                lastName: lastName,
-                email: email,
-                dateOfBirth: dateOfBirth,
-                referralCode: referralCode
-            ) { success in
-                if success {
-                    let newUser = User(firstName: firstName, lastName: lastName, email: email, password: "")
-                    completion(true, newUser)
-                    print("✅ User created with UID: \(user.uid)")
-                } else {
-                    user.delete { _ in
-                        self.handleError(message: "❌ Failed to save user data. Account removed.")
-                        completion(false, nil)
                     }
                 }
             }
@@ -147,7 +148,7 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    func login(email: String, password: String, completion: @escaping (Bool, User?) -> Void) {
+    func login(email: String, password: String, completion: @escaping (Bool, AppUser?) -> Void) {
         Auth.auth().signIn(withEmail: email, password: password) { [weak self] authResult, error in
             guard let self = self else { return }
             
@@ -173,7 +174,7 @@ class AuthViewModel: ObservableObject {
         }
     }
     
-    private func fetchUserDetails(uid: String, completion: @escaping (Bool, User?) -> Void) {
+    private func fetchUserDetails(uid: String, completion: @escaping (Bool, AppUser?) -> Void) {
         let db = Firestore.firestore()
         db.collection("users").document(uid).getDocument { document, error in
             if let error = error {
@@ -193,7 +194,7 @@ class AuthViewModel: ObservableObject {
                 let lastName = data["lastName"] as? String ?? ""
                 let email = data["email"] as? String ?? ""
                 
-                let user = User(firstName: firstName, lastName: lastName, email: email, password: "")
+                let user = AppUser(firstName: firstName, lastName: lastName, email: email)
                 completion(true, user)
             } else {
                 completion(false, nil)
@@ -211,7 +212,7 @@ class AuthViewModel: ObservableObject {
         }
     }
     
-    func handleSocialSignIn(user: User, uid: String, completion: @escaping (Bool) -> Void) {
+    func handleSocialSignIn(user: AppUser, uid: String, completion: @escaping (Bool) -> Void) {
         let db = Firestore.firestore()
         let userRef = db.collection("users").document(uid)
         

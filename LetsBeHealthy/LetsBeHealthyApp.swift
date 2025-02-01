@@ -13,37 +13,26 @@ import FirebaseCore
 @main
 struct LetsBeHealthyApp: App {
     @State private var isLoggedIn: Bool = false
-    @State var user: User?
-    //@StateObject private var firestoreManager = FirestoreManager()
-    init() {
-        AppCheck.setAppCheckProviderFactory(nil)
-        FirebaseApp.configure()
-        print("🚀 Firebase Successfully Configured Without App Check!")
-//        AppCheck.appCheck().isTokenAutoRefreshEnabled = false // 🔥 Disable App Check
-//            
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView(user: self.$user)
-                .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url) // ✅ FIX: Correct URL handling
-                }
-                .onAppear {
-                    GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
-                        if let user = user {
-                            self.user = User(
-                                firstName: user.profile?.givenName ?? "",
-                                lastName: user.profile?.familyName ?? "",
-                                email: user.profile?.email ?? "",
-                                password: ""
-                            )
-                            isLoggedIn = true
-                        }
-                    }
-                }
+    @StateObject private var authManager = AuthManager.shared
+        
+        init() {
+            AppCheck.setAppCheckProviderFactory(nil)
+            FirebaseApp.configure()
+            print("🚀 Firebase Successfully Configured Without App Check!")
         }
-    }
+
+        var body: some Scene {
+            WindowGroup {
+                ContentView(user: $authManager.appUser) // ✅ Updated to use shared instance
+                    .environmentObject(authManager)
+                    .onOpenURL { url in
+                        AuthManager.shared.handleGoogleURL(url)
+                    }
+                    .onAppear {
+                        AuthManager.shared.restoreGoogleSignIn()
+                    }
+            }
+        }
 }
 
 // 🔹 Firestore Manager for Global Use
@@ -55,10 +44,3 @@ struct LetsBeHealthyApp: App {
 //    }
 //}
 
-// 🔹 User Model
-struct User: Codable {
-    var firstName: String
-    var lastName: String
-    var email: String
-    var password: String
-}
