@@ -14,15 +14,22 @@ class AuthManager: ObservableObject {
     static let shared = AuthManager()
     
     @Published var appUser: AppUser?
-    
-    private init() {
-        setupAuthListener()
-    }
+        private var authStateListenerHandle: AuthStateDidChangeListenerHandle?
+        
+        private init() {
+            setupAuthListener()
+        }
     
     private func setupAuthListener() {
-        Auth.auth().addStateDidChangeListener { [weak self] (_, firebaseUser) in
+        authStateListenerHandle = Auth.auth().addStateDidChangeListener { [weak self] (_, firebaseUser) in
             guard let self = self else { return }
             self.updateUser(from: firebaseUser)
+        }
+    }
+    
+    deinit {
+        if let handle = authStateListenerHandle {
+            Auth.auth().removeStateDidChangeListener(handle)
         }
     }
     
@@ -62,7 +69,7 @@ class AuthManager: ObservableObject {
         }
     }
     
-    // MARK: - Email/Password Auth (Using Shared Instance)
+    // MARK: - Email/Password Auth
     func signIn(email: String, password: String, completion: @escaping (Error?) -> Void) {
         Auth.auth().signIn(withEmail: email, password: password) { authResult, error in
             if let error = error {
