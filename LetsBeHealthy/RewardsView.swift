@@ -1,24 +1,33 @@
 import SwiftUI
 import HealthKit
 import UIKit
+import MessageUI
+import FirebaseAuth
+import FirebaseFirestore
 
 struct RewardsView: View {
-    @State private var totalStepCoins: Int = UserDefaults.standard.integer(forKey: "totalStepCoins") // Persistent StepCoins
+    @State private var totalStepCoins: Int = UserDefaults.standard.integer(forKey: "totalStepCoins")
     @State private var totalSteps: Int = UserDefaults.standard.integer(forKey: "totalSteps")
     @State private var stepCount: Double = 0.0
     @State private var rewardTier: String = "Bronze"
     @State private var showNotification: Bool = false
     @State private var notificationMessage: String = ""
+    @State private var showMailComposer: Bool = false
+    @State private var mailMessage: String = ""
+    @State private var selectedReward: String = ""
+    @State private var showSuccessAlert = false
+    private let healthStore = HKHealthStore()
     
-    let rewardThresholds = [(1000, "Bronze"), (5000, "Silver"), (10000, "Gold")]
-    let rewardItems = [
-        (name: "10% Discount Coupon", cost: 500),
-        (name: "Free Gym Pass", cost: 1000),
-        (name: "Fitness Band Giveaway Entry", cost: 5000)
+let rewardThresholds = [(1000, "Bronze"), (5000, "Silver"), (10000, "Gold")]
+let rewardItems: [(name: String, cost: Int)] = [
+        (name: "5$ McDonald's gift card", cost: 2500),
+        (name: "10$ McDonald's gift card", cost: 4000),
+        (name: "25$ McDonald's gift card", cost: 8000)
     ]
-    let achievements = [
+
+let achievements: [(name: String, image: String, threshold: Int)] = [
         (name: "First 1K", image: "1k-badge", threshold: 1000),
-        (name: "Marathoner", image: "marathon-badge", threshold: 10000),
+        (name: "Marathoner", image: "marathon-badge", threshold: 10_000),
         (name: "100K Club", image: "100k-badge", threshold: 100_000),
         (name: "1 Million Steps", image: "1m-badge", threshold: 1_000_000)
     ]
@@ -76,23 +85,14 @@ struct RewardsView: View {
                     StepCountView(stepCount: $stepCount)
                         .onChange(of: stepCount) { newValue, oldValue in
                             print("Step count changed from \(oldValue) to \(newValue)")
-                            updateTotalStepCoins()
+                            updateStepCoins()
                         }
                     
                     // Weekly & Monthly Challenges
                     VStack {
-                        Text("Challenges")
-                            .font(.title2)
-                            .foregroundColor(.white.opacity(0.8))
-                        
-                        Text("Walk 50,000 Steps This Week: Earn 500 StepCoins!")
+                        Text("Earn 1 Step coin for every 100 steps.")
                             .font(.caption)
-                            .foregroundColor(totalStepCoins >= 500 ? .green : .white)
-                            .padding()
-                        
-                        Text("Walk 200,000 Steps This Month: Earn 2000 StepCoins!")
-                            .font(.caption)
-                            .foregroundColor(totalStepCoins >= 2000 ? .green : .white)
+                            .foregroundColor(.white)
                             .padding()
                     }
                     .padding()
@@ -100,26 +100,26 @@ struct RewardsView: View {
                     .cornerRadius(20)
                     .shadow(radius: 10)
                     
+                    let unlockedAchievements = achievements.filter { totalSteps >= $0.threshold }
                     //Achievements
                     VStack {
-                                            Text("Achievements 🏆")
-                                                .font(.title2)
-                                                .foregroundColor(.white)
-                                            
-                                            ScrollView(.horizontal) {
-                                                HStack {
-                                                    ForEach(achievements.filter { totalSteps >= $0.threshold }, id: \.name) { achievement in
-                                                        VStack {
-                                                            Image(achievement.image)
-                                                                .resizable()
-                                                                .frame(width: 80, height: 80)
-                                                            Text(achievement.name)
-                                                                .foregroundColor(.white)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+                        Text("Achievements 🏆")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                        ScrollView(.horizontal) {
+                            HStack {
+                                ForEach(unlockedAchievements, id: \.name) { achievement in
+                                    VStack {
+                                        Image(achievement.image)
+                                            .resizable()
+                                            .frame(width: 80, height: 80)
+                                        Text(achievement.name)
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     .padding()
                     
                     // 🔹 Reward Store Section
@@ -127,24 +127,10 @@ struct RewardsView: View {
                         Text("Reward Store 🎁")
                             .font(.title2)
                             .foregroundColor(.white.opacity(0.8))
-                        
                         ForEach(rewardItems, id: \.name) { item in
-                            HStack {
-                                Text(item.name)
-                                    .foregroundColor(.white)
-                                Spacer()
-                                Text("\(item.cost) 💰")
-                                    .foregroundColor(.yellow)
-                                Button("Redeem") {
-                                    redeemReward(itemCost: item.cost)
-                                }
-                                .padding(.horizontal, 10)
-                                .background(totalStepCoins >= item.cost ? Color.green : Color.gray)
-                                .foregroundColor(.white)
-                                .cornerRadius(5)
-                                .disabled(totalStepCoins < item.cost)
+                            RewardItemView(item: item, totalStepCoins: totalStepCoins) {
+                                redeemReward(item)
                             }
-                            .padding()
                         }
                     }
                     .padding()
@@ -167,38 +153,78 @@ struct RewardsView: View {
             }
         }
         .onAppear {
-            fetchDailySteps()
             fetchTotalStepsSinceInstallation()
+            fetchStepCount()
         }
         .background(Color(.systemBackground).opacity(0.2))
     }
     
-    private func updateTotalStepCoins() {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let lastUpdateDate = UserDefaults.standard.object(forKey: UserDefaults.lastCoinUpdateDateKey) as? Date ?? Date.distantPast
+    private func fetchStepCount() {
+            let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+            let now = Date()
+            let startOfDay = Calendar.current.startOfDay(for: now)
         
-        // Only update once per day
-        if !calendar.isDate(today, inSameDayAs: lastUpdateDate) {
-            let newStepCoins = Int(stepCount / 100)
-            totalStepCoins += newStepCoins
-            UserDefaults.standard.set(today, forKey: UserDefaults.lastCoinUpdateDateKey)
-            UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
-            print("🎉 Daily StepCoins added: \(newStepCoins)")
+            
+            let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
+            
+            let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, _ in
+                guard let result = result, let sum = result.sumQuantity() else {
+                    print("Failed to fetch steps")
+                    return
+                }
+                stepCount = sum.doubleValue(for: HKUnit.count())
+                updateStepCoins()
+            }
+            
+            healthStore.execute(query)
+        }
+    private func updateStepCoins() {
+            let lastTotalSteps = UserDefaults.standard.integer(forKey: "lastTotalSteps")
+            let newSteps = Int(stepCount) - lastTotalSteps
+            
+            if newSteps > 0 {
+                let newStepCoins = newSteps / 100
+                totalStepCoins += newStepCoins
+                totalSteps += newSteps
+                
+                UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
+                UserDefaults.standard.set(Int(stepCount), forKey: "lastTotalSteps")
+                
+                print("🎉 StepCoins added: \(newStepCoins), Total Steps: \(totalSteps)")
+            } else {
+                print("No new steps to add.")
+            }
+        }
+
+    private func redeemReward(_ reward: (name: String, cost: Int)) {
+        guard totalStepCoins >= reward.cost else { return }
+        
+        totalStepCoins -= reward.cost
+        selectedReward = reward.name
+        UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
+        
+        // Show success message
+        showSuccessAlert = true
+        
+        // Save reward redemption to Firestore (Firebase will handle sending the email)
+        let db = Firestore.firestore()
+        let userEmail = Auth.auth().currentUser?.email ?? "unknown@example.com"
+        
+        db.collection("mail").addDocument(data: [
+            "to": userEmail,
+            "message": [
+                        "subject": "Your Reward Has Been Redeemed!",
+                        "text": "Congratulations! You have successfully redeemed \(reward.name). Enjoy your reward!"
+                    ],
+             "redeemedAt": Timestamp(date: Date())
+        ]) { error in
+            if let error = error {
+                print("Error saving redemption: \(error.localizedDescription)")
+            } else {
+                print("🎉 Reward redemption saved, email will be sent automatically!")
+            }
         }
     }
-    
-    // 🔹 Reward Redemption Logic
-    private func redeemReward(itemCost: Int) {
-        if totalStepCoins >= itemCost {
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
-            totalStepCoins -= itemCost
-            UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
-            showNotificationMessage("Reward Redeemed Successfully! 🎉")
-        }
-    }
-    
     // 🔹 Achievement Notification
     private func showNotificationMessage(_ message: String) {
         notificationMessage = message
@@ -207,30 +233,7 @@ struct RewardsView: View {
             showNotification = false
         }
     }
-    
-    
-    // 🔹 Fetch Today's Steps from HealthKit
-    private func fetchDailySteps() {
-        let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
-        let now = Date()
-        let startOfDay = Calendar.current.startOfDay(for: now)
-        
-        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
-        
-        let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
-            guard let sum = result?.sumQuantity() else {
-                print("❌ Failed to fetch steps: \(error?.localizedDescription ?? "Unknown Error")")
-                return
-            }
-            
-            DispatchQueue.main.async {
-                self.stepCount = sum.doubleValue(for: HKUnit.count()) // ✅ Update stepCount in RewardsView
-                self.updateTotalStepCoins() // ✅ Update total StepCoins
-            }
-        }
-        HKHealthStore().execute(query)
-    }
-    // New HealthKit query for total steps since first launch
+
       private func fetchTotalStepsSinceInstallation() {
           guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount),
                 let firstLaunchDate = UserDefaults.standard.object(forKey: "firstLaunchDate") as? Date else {
@@ -255,7 +258,64 @@ struct RewardsView: View {
           }
           HKHealthStore().execute(query)
       }
-}
+    
+    struct RewardItemView: View {
+        let item: (name: String, cost: Int)
+        let totalStepCoins: Int
+        let redeemAction: () -> Void
+
+        var body: some View {
+            let canRedeem = totalStepCoins >= item.cost
+            let buttonColor = canRedeem ? Color.green : Color.gray
+            
+            HStack {
+                Text(item.name)
+                    .foregroundColor(.white)
+                Spacer()
+                Text("\(item.cost) 💰")
+                    .foregroundColor(.yellow)
+                Button("Redeem", action: redeemAction)
+                    .padding(.horizontal, 10)
+                    .background(buttonColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(5)
+                    .disabled(!canRedeem)
+            }
+            .padding()
+        }
+    }
+    struct MailView: UIViewControllerRepresentable {
+            @Binding var isShowing: Bool
+            let messageBody: String
+            
+            func makeCoordinator() -> Coordinator {
+                Coordinator(isShowing: $isShowing)
+            }
+            
+            func makeUIViewController(context: Context) -> MFMailComposeViewController {
+                let mail = MFMailComposeViewController()
+                mail.mailComposeDelegate = context.coordinator
+                mail.setToRecipients(["rewards@yourcompany.com"]) // Set your email here
+                mail.setSubject("🎉 Reward Redemption Confirmation")
+                mail.setMessageBody(messageBody, isHTML: false)
+                return mail
+            }
+            
+            func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
+            
+            class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+                @Binding var isShowing: Bool
+                
+                init(isShowing: Binding<Bool>) {
+                    _isShowing = isShowing
+                }
+                
+                func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+                    isShowing = false
+                }
+            }
+        }
+    }
 extension UserDefaults {
     static let lastCoinUpdateDateKey = "lastCoinUpdateDate"
     static let todaysStepCoinKey = "todaysStepCoin"
