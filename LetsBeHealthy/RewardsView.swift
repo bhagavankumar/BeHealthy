@@ -103,7 +103,7 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
                     let unlockedAchievements = achievements.filter { totalSteps >= $0.threshold }
                     //Achievements
                     VStack {
-                        Text("Achievements 🏆")
+                        Text("Lifetime Achievements 🏆")
                             .font(.title2)
                             .foregroundColor(.white)
                         ScrollView(.horizontal) {
@@ -206,6 +206,7 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
         // Show success message
         showSuccessAlert = true
         
+        showNotificationMessage("🎉 You have successfully redeemed \(reward.name). Your reward will be sent to your mail!")
         // Save reward redemption to Firestore (Firebase will handle sending the email)
         let db = Firestore.firestore()
         let userEmail = Auth.auth().currentUser?.email ?? "unknown@example.com"
