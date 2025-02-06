@@ -21,8 +21,8 @@ struct RewardsView: View {
 let rewardThresholds = [(1000, "Bronze"), (5000, "Silver"), (10000, "Gold")]
 let rewardItems: [(name: String, cost: Int)] = [
         (name: "5$ McDonald's gift card", cost: 2500),
-        (name: "10$ McDonald's gift card", cost: 4000),
-        (name: "25$ McDonald's gift card", cost: 8000)
+        (name: "10$ Amazon's gift card", cost: 4000),
+        (name: "25$ Walmart's gift card", cost: 8000)
     ]
 
 let achievements: [(name: String, image: String, threshold: Int)] = [
@@ -153,6 +153,7 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
             }
         }
         .onAppear {
+            resetStepTrackingIfNeeded()
             fetchTotalStepsSinceInstallation()
             fetchStepCount()
         }
@@ -179,22 +180,46 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
             healthStore.execute(query)
         }
     private func updateStepCoins() {
-            let lastTotalSteps = UserDefaults.standard.integer(forKey: "lastTotalSteps")
+        let lastTotalSteps = UserDefaults.standard.integer(forKey: "lastTotalSteps")
             let newSteps = Int(stepCount) - lastTotalSteps
+
             
             if newSteps > 0 {
                 let newStepCoins = newSteps / 100
                 totalStepCoins += newStepCoins
                 totalSteps += newSteps
                 
-                UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
                 UserDefaults.standard.set(Int(stepCount), forKey: "lastTotalSteps")
-                
+                UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
+
                 print("🎉 StepCoins added: \(newStepCoins), Total Steps: \(totalSteps)")
             } else {
                 print("No new steps to add.")
             }
         }
+    private func resetStepTrackingIfNeeded() {
+        let calendar = Calendar.current
+        let lastUpdateDate = UserDefaults.standard.object(forKey: "lastCoinUpdateDate") as? Date ?? Date.distantPast
+        let today = Date()
+
+        if !calendar.isDate(lastUpdateDate, inSameDayAs: today) {
+            print("🔄 Resetting lastTotalSteps for the new day.")
+
+            // Reset lastTotalSteps to the current step count
+            UserDefaults.standard.set(Int(stepCount), forKey: "lastTotalSteps")
+
+            // Save today’s date to track when we last reset
+            UserDefaults.standard.set(today, forKey: "lastCoinUpdateDate")
+            
+            // Reset today's StepCoins (if needed)
+            UserDefaults.standard.set(0, forKey: "todaysStepCoin")
+            
+            // Force update UI
+            DispatchQueue.main.async {
+                self.totalStepCoins = UserDefaults.standard.integer(forKey: "totalStepCoins")
+            }
+        }
+    }
 
     private func redeemReward(_ reward: (name: String, cost: Int)) {
         guard totalStepCoins >= reward.cost else { return }

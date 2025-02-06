@@ -9,6 +9,7 @@ struct StepTrackerView: View {
     @Binding var selectedTab: String  // This binds to the bottom tab navigation
     @State private var showSettings: Bool = false
     @State private var viewLoaded = false
+    @AppStorage("stepGoal") private var stepGoal: Int = 10000
     
     var body: some View {
         NavigationView {
@@ -101,8 +102,7 @@ struct StepTrackerView: View {
                         .shadow(radius: 10)
                         
                         Spacer()
-                        
-                        ProgressRingView(progress: Double(steps) / 10000, color: .blue)
+                        ProgressRingView(progress: Double(steps) / Double(stepGoal), color: .blue)
                             .frame(width: 200, height: 200)
                         
                         Button(action: fetchSteps) {
@@ -127,6 +127,7 @@ struct StepTrackerView: View {
                 }
             }
         }
+        .navigationBarHidden(true)
     }
     
     private func shareAchievement() {

@@ -69,19 +69,6 @@ struct SideMenuView: View {
                 }
 
                 Spacer()
-
-                // Logout Button (with same gap)
-                Button(action: {
-                    authManager.signOut()
-                }) {
-                    Label("Logout", systemImage: "arrow.backward.square.fill")
-                        .font(.headline)
-                        .padding(.vertical, 15)
-                        .padding(.leading, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .padding(.bottom, 30)
             }
             .padding(.top, 50)
             .frame(width: 250, height: UIScreen.main.bounds.height * 0.9)
