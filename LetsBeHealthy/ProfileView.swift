@@ -123,6 +123,52 @@ struct ProfileView: View {
                         )
                     }
                     
+                    NavigationLink(destination: FriendsListView()) {
+                        HStack {
+                            Image(systemName: "person.3.fill")
+                            Text("Friends List")
+                        }
+                        .font(.headline)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.purple)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        .shadow(radius: 5)
+                    }
+                    .padding(.horizontal)
+                    
+                    NavigationLink(destination: SearchFriendsView()) {
+                        HStack {
+                            Image(systemName: "magnifyingglass")
+                            Text("Find Friends")
+                        }
+                        .font(.headline)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        .shadow(radius: 5)
+                    }
+                    .padding(.horizontal)
+                   
+                        // Invite Friends Section
+                        Button(action: shareReferralLink) {
+                            HStack {
+                                Image(systemName: "person.badge.plus")
+                                Text("Invite Friends")
+                            }
+                            .font(.headline)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                            .shadow(radius: 5)
+                        }
+                        .padding(.horizontal)
+                    
                     // Editable Fields with Consistent Background and Shadows
                     if isEditing {
                         VStack(spacing: 15) {
@@ -205,78 +251,115 @@ struct ProfileView: View {
         var id = UUID()  // Unique identifier for the alert
         var message: String
     }
-    // Load User Data from Firebase Auth
     private func loadUserData() {
         if let user = Auth.auth().currentUser {
             name = user.displayName ?? "No Name"
             email = user.email ?? "No Email"
-            originalEmail = user.email ?? ""  // Store original email for comparison
+            originalEmail = user.email ?? ""
+            
+            // Generate and store referral code if missing
+            if UserDefaults.standard.string(forKey: "userReferralCode") == nil {
+                let referralCode = generateReferralCode(uid: user.uid)
+                UserDefaults.standard.set(referralCode, forKey: "userReferralCode")
+            }
         } else {
             name = "Guest User"
             email = "Not Signed In"
         }
     }
     
+    private func shareReferralLink() {
+        print("✅ Invite Friends button clicked!")
+
+        guard Auth.auth().currentUser != nil else {
+            print("❌ No authenticated user found.")
+            return
+        }
+
+        // Ensure referral code exists
+        let storedReferralCode = UserDefaults.standard.string(forKey: "userReferralCode") ?? ""
+        guard !storedReferralCode.isEmpty else {
+            print("❌ Referral code not found")
+            return
+        }
+
+        let link = URL(string: "https://yourapp.page.link/?referral=\(storedReferralCode)")!
+        let activityVC = UIActivityViewController(activityItems: [link], applicationActivities: nil)
+
+        // Present the share sheet
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            window.rootViewController?.present(activityVC, animated: true)
+        }
+    }
+private func generateReferralCode(uid: String) -> String {
+    let timestamp = Int(Date().timeIntervalSince1970)
+    return "\(uid.prefix(4))\(timestamp % 10000)" // Example: Combine UID and timestamp
+}
+    
     private func saveChanges() {
         guard let user = Auth.auth().currentUser else {
             print("No authenticated user found.")
             return
         }
-        
+
         // First, check if the email has changed and validate it
         if email != originalEmail {
             print("Email has changed from \(originalEmail) to \(email). Validating...")
-            
+
             if email.isEmpty {
                 print("Email is empty.")
                 showInvalidEmailAlert = true
                 return
             }
-            
+
             if !isValidEmail(email) {
                 print("Invalid email detected: \(email)")
-                
+
                 DispatchQueue.main.async {
                     print("Triggering invalid email alert.")
                     self.activeAlert = .invalidEmail
                     self.email = self.originalEmail  // Revert to original email
                 }
-                
                 return
             }
-            
+
             // If valid, prompt re-authentication
             print("Email is valid. Proceeding to re-authentication.")
-            
             DispatchQueue.main.async {
-                    self.showReAuthPrompt = true  // Ensure this triggers the prompt
-                }
+                self.showReAuthPrompt = true  // Ensure this triggers the prompt
+            }
             return  // Wait for re-authentication before making further changes
         }
-        
-        // If email is unchanged, proceed to update name and bio without re-authentication
-        updateProfileDetails(user: user)
+
+        // ✅ If email is unchanged, update name and bio without requiring re-authentication
+        updateProfileDetails(for: Auth.auth().currentUser)
     }
-    
-    private func updateProfileDetails(user: User) {
+
+    private func updateProfileDetails(for user: FirebaseAuth.User?) {
+        guard let user = user else {
+            print("❌ No authenticated user found.")
+            return
+        }
+        
         let changeRequest = user.createProfileChangeRequest()
         changeRequest.displayName = name
         changeRequest.commitChanges { error in
             if let error = error {
-                print("Failed to update name: \(error.localizedDescription)")
+                print("❌ Failed to update name: \(error.localizedDescription)")
             } else {
-                print("Name updated successfully.")
+                print("✅ Name updated successfully.")
             }
         }
-        
+
         let db = Firestore.firestore()
         db.collection("users").document(user.uid).setData([
             "bio": bio
         ], merge: true) { error in
             if let error = error {
-                print("Error updating bio: \(error.localizedDescription)")
+                print("❌ Error updating bio: \(error.localizedDescription)")
             } else {
-                print("Bio updated successfully.")
+                print("✅ Bio updated successfully.")
             }
         }
     }

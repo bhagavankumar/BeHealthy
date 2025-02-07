@@ -4,6 +4,7 @@ import GoogleSignInSwift
 import AuthenticationServices
 import FirebaseAuth
 import FirebaseFirestore
+import CryptoKit
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
@@ -58,6 +59,7 @@ struct LoginOnlyView: View {
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var appleAuthDelegate: AppleSignInDelegate?
+    @State private var errorMessage: String?
     
     var body: some View {
         ScrollView {
@@ -67,15 +69,16 @@ struct LoginOnlyView: View {
                     .padding()
                     .autocapitalization(.none)
                     .keyboardType(.emailAddress)
-
+                
                 SecureField("Password", text: $password)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
-
+                
                 Button(action:
                         {
                     AuthManager.shared.signIn(email: email, password: password) { error in
                         if let error = error {
+                            errorMessage = error.localizedDescription
                             print("❌ Login failed: \(error.localizedDescription)")
                         } else {
                             isLoggedIn = true
@@ -91,7 +94,12 @@ struct LoginOnlyView: View {
                         .shadow(radius: 5)
                 }
                 .padding()
-
+                if let errorMessage = errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .padding()
+                }
+                
                 Button(action: {
                     isForgotPasswordPresented = true
                 }) {
@@ -100,18 +108,22 @@ struct LoginOnlyView: View {
                         .underline()
                 }
                 .padding()
-
+                
                 if !authViewModel.errorMessage.isEmpty {
                     Text(authViewModel.errorMessage)
                         .foregroundColor(.red)
                 }
-
+                
                 VStack(spacing: 20) {
                     GoogleSignInButton {
                         handleGoogleSignIn()
                     }
                     .padding()
-
+                    if let errorMessage = errorMessage {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .padding()
+                    }
                     AppleSignInButton()
                         .frame(height: 50)
                         .onTapGesture {
@@ -122,35 +134,44 @@ struct LoginOnlyView: View {
                 .padding()
             }
             .padding()
-        
-    }
-}
-    func handleAppleSignIn() {
-            let provider = ASAuthorizationAppleIDProvider()
-            let request = provider.createRequest()
-            request.requestedScopes = [.fullName, .email]
-
-            let controller = ASAuthorizationController(authorizationRequests: [request])
             
-            // Create and retain the delegate within LoginOnlyView's scope
-            appleAuthDelegate = AppleSignInDelegate()
-            controller.delegate = appleAuthDelegate
-            
-            controller.performRequests()
         }
+    }
+    func handleAppleSignIn() {
+        let provider = ASAuthorizationAppleIDProvider()
+        let request = provider.createRequest()
+        request.requestedScopes = [.fullName, .email]
+        
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        
+        // Create and retain the delegate within LoginOnlyView's scope
+        appleAuthDelegate = AppleSignInDelegate()
+        controller.delegate = appleAuthDelegate
+        
+        controller.performRequests()
+    }
     func handleGoogleSignIn() {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first?.rootViewController else { return }
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+            errorMessage = "Unable to get root view controller."
+            return
+        }
         
-        GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { [self] signInResult, error in
-            
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { signInResult, error in
             if let error = error {
-                print("Google Sign-In failed: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.errorMessage = "Google Sign-In failed: \(error.localizedDescription)"
+                }
                 return
             }
             
             guard let gUser = signInResult?.user,
-                  let idToken = gUser.idToken?.tokenString else { return }
+                  let idToken = gUser.idToken?.tokenString else {
+                DispatchQueue.main.async {
+                    self.errorMessage = "Failed to retrieve user credentials."
+                }
+                return
+            }
             
             let credential = GoogleAuthProvider.credential(
                 withIDToken: idToken,
@@ -159,11 +180,18 @@ struct LoginOnlyView: View {
             
             Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
-                    print("Firebase auth error: \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.errorMessage = "Firebase auth error: \(error.localizedDescription)"
+                    }
                     return
                 }
                 
-                guard let uid = authResult?.user.uid else { return }
+                guard let uid = authResult?.user.uid else {
+                    DispatchQueue.main.async {
+                        self.errorMessage = "User ID not found."
+                    }
+                    return
+                }
                 
                 let newUser = AppUser(
                     firstName: gUser.profile?.givenName ?? "",
@@ -172,17 +200,20 @@ struct LoginOnlyView: View {
                 )
                 
                 self.authViewModel.handleSocialSignIn(user: newUser, uid: uid) { success in
-                    if success {
-                        DispatchQueue.main.async {
+                    DispatchQueue.main.async {
+                        if success {
                             self.user = newUser
                             self.isLoggedIn = true
+                            self.errorMessage = nil // Clear error on success
+                        } else {
+                            self.errorMessage = "Failed to complete sign-in process."
                         }
                     }
                 }
             }
         }
     }
-    }
+}
 
 
 struct AppleSignInButton: UIViewRepresentable {
@@ -194,18 +225,78 @@ struct AppleSignInButton: UIViewRepresentable {
 }
 
 class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
-    weak var parentController: UIViewController?
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-            let userIdentifier = appleIDCredential.user
-            let fullName = appleIDCredential.fullName
-            let email = appleIDCredential.email
-
-            print("Apple Sign-In Successful!")
-            print("User ID: \(userIdentifier)")
-            print("Full Name: \(fullName?.givenName ?? "No name") \(fullName?.familyName ?? "")")
-            print("Email: \(email ?? "No email")")
+        guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let appleIDToken = appleIDCredential.identityToken else {
+            return
         }
+        
+        guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+            print("Unable to serialize token string from data")
+            return
+        }
+        
+        let nonce = generateNonce() // Generate a secure nonce
+        let credential = OAuthProvider.credential(withProviderID: "apple.com",
+                                                  idToken: idTokenString,
+                                                  rawNonce: nonce)
+        
+        Auth.auth().signIn(with: credential) { authResult, error in
+            if let error = error {
+                print("Apple sign in error: \(error.localizedDescription)")
+                return
+            }
+            
+            // Handle new user creation in Firestore if needed
+            guard let user = authResult?.user else { return }
+            
+            let db = Firestore.firestore()
+            let userRef = db.collection("users").document(user.uid)
+            
+            userRef.getDocument { document, _ in
+                    if let document = document, !document.exists {
+                        let firstName = appleIDCredential.fullName?.givenName ?? ""
+                        let lastName = appleIDCredential.fullName?.familyName ?? ""
+                        let email = user.email ?? "" // Use Firebase user's email
+
+                        // Update Firebase user's displayName
+                        let changeRequest = user.createProfileChangeRequest()
+                        changeRequest.displayName = "\(firstName) \(lastName)"
+                        changeRequest.commitChanges { error in
+                            if let error = error {
+                                print("Error updating display name: \(error)")
+                            }
+                        }
+
+                        userRef.setData([
+                            "firstName": firstName,
+                            "lastName": lastName,
+                            "email": email,
+                            "referralCode": UUID().uuidString.components(separatedBy: "-").first!.lowercased(),
+                            "stepcoins": 0
+                        ])
+                    }
+                }
+            }
+        }
+    func generateNonce(length: Int = 32) -> String {
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+
+        while remainingLength > 0 {
+            let randoms: [UInt8] = (0 ..< 16).map { _ in UInt8.random(in: 0...255) }
+            for random in randoms {
+                if remainingLength == 0 {
+                    break
+                }
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+        return result
     }
 }
 
@@ -303,7 +394,7 @@ struct SignupView: View {
                                 email: email,
                                 password: password,
                                 dateOfBirth: dateOfBirth,
-                                referralCode: referralCode
+                                referralCode: referralCode.isEmpty ? nil : referralCode
                             ) { success, userDetails in
                                 if success, let userDetails = userDetails {
                                     DispatchQueue.main.async {

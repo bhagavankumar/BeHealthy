@@ -6,7 +6,7 @@ import FirebaseAuth
 import FirebaseFirestore
 
 struct RewardsView: View {
-    @State private var totalStepCoins: Int = UserDefaults.standard.integer(forKey: "totalStepCoins")
+    
     @State private var totalSteps: Int = UserDefaults.standard.integer(forKey: "totalSteps")
     @State private var stepCount: Double = 0.0
     @State private var rewardTier: String = "Bronze"
@@ -16,6 +16,12 @@ struct RewardsView: View {
     @State private var mailMessage: String = ""
     @State private var selectedReward: String = ""
     @State private var showSuccessAlert = false
+    @AppStorage("stepCoinsFromSteps") private var stepCoinsFromSteps: Int = 0
+    @AppStorage("stepCoinsFromMeditation") private var stepCoinsFromMeditation: Int = 0
+
+    var totalStepCoins: Int {
+        stepCoinsFromSteps + stepCoinsFromMeditation
+    }
     private let healthStore = HKHealthStore()
     
 let rewardThresholds = [(1000, "Bronze"), (5000, "Silver"), (10000, "Gold")]
@@ -186,7 +192,7 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
             
             if newSteps > 0 {
                 let newStepCoins = newSteps / 100
-                totalStepCoins += newStepCoins
+                stepCoinsFromSteps += newStepCoins
                 totalSteps += newSteps
                 
                 UserDefaults.standard.set(Int(stepCount), forKey: "lastTotalSteps")
@@ -216,7 +222,7 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
             
             // Force update UI
             DispatchQueue.main.async {
-                self.totalStepCoins = UserDefaults.standard.integer(forKey: "totalStepCoins")
+                self.stepCoinsFromSteps = UserDefaults.standard.integer(forKey: "totalStepCoins")
             }
         }
     }
@@ -224,18 +230,35 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
     private func redeemReward(_ reward: (name: String, cost: Int)) {
         guard totalStepCoins >= reward.cost else { return }
         
-        totalStepCoins -= reward.cost
+        var remainingCost = reward.cost
+
+        // Deduct from meditation coins first if available
+        if stepCoinsFromMeditation >= remainingCost {
+            stepCoinsFromMeditation -= remainingCost
+            remainingCost = 0
+        } else {
+            remainingCost -= stepCoinsFromMeditation
+            stepCoinsFromMeditation = 0
+        }
+
+        // Deduct remaining cost from step coins if needed
+        if remainingCost > 0 {
+            stepCoinsFromSteps -= remainingCost
+        }
+
         selectedReward = reward.name
-        UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
-        
+        UserDefaults.standard.set(stepCoinsFromSteps, forKey: "stepCoinsFromSteps")
+        UserDefaults.standard.set(stepCoinsFromMeditation, forKey: "stepCoinsFromMeditation")
+
         // Show success message
         showSuccessAlert = true
-        
+
         showNotificationMessage("🎉 You have successfully redeemed \(reward.name). Your reward will be sent to your mail!")
+
         // Save reward redemption to Firestore (Firebase will handle sending the email)
         let db = Firestore.firestore()
         let userEmail = Auth.auth().currentUser?.email ?? "unknown@example.com"
-        
+
         db.collection("mail").addDocument(data: [
             "to": userEmail,
             "message": [

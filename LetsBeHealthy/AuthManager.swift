@@ -9,6 +9,7 @@
 import Foundation
 import FirebaseAuth
 import GoogleSignIn
+import FirebaseFirestore
 
 class AuthManager: ObservableObject {
     static let shared = AuthManager()
@@ -81,21 +82,67 @@ class AuthManager: ObservableObject {
         }
     }
     
-    func signUp(email: String, password: String, firstName: String, lastName: String, completion: @escaping (Error?) -> Void) {
-        Auth.auth().createUser(withEmail: email, password: password) { result, error in
-            if let error = error {
-                completion(error)
-                return
+        func signUp(email: String, password: String, firstName: String, lastName: String, dateOfBirth: Date , referralCode: String?, completion: @escaping (Error?) -> Void) { // Added referralCode parameter
+                Auth.auth().createUser(withEmail: email, password: password) { result, error in
+                    if let error = error {
+                        completion(error)
+                        return
+                    }
+                    
+                    guard let user = result?.user else {
+                        completion(NSError(domain: "AuthError", code: -1, userInfo: [NSLocalizedDescriptionKey: "User creation failed"]))
+                        return
+                    }
+                    user.sendEmailVerification { error in
+                            if let error = error {
+                                print("Error sending verification email: \(error.localizedDescription)")
+                            }
+                        }
+                    
+                    let changeRequest = user.createProfileChangeRequest()
+                    changeRequest.displayName = "\(firstName) \(lastName)"
+                    changeRequest.commitChanges { error in
+                        self.updateUser(from: user)
+                        
+                        // Generate new user's referral code
+                        let newReferralCode = UUID().uuidString.components(separatedBy: "-").first!.lowercased()
+                        let db = Firestore.firestore()
+                        let userRef = db.collection("users").document(user.uid)
+                        
+                        // Set user data
+                        userRef.setData([
+                            "firstName": firstName,
+                            "lastName": lastName,
+                            "email": email,
+                            "dateOfBirth": Timestamp(date: dateOfBirth),
+                            "referralCode": newReferralCode,
+                            "stepcoins": 0
+                        ]) { error in
+                            if let error = error {
+                                print("Error writing user document: \(error)")
+                            }
+                        }
+                        
+                        // Handle referral code if exists
+                        if let referralCode = referralCode, !referralCode.isEmpty {
+                            let usersRef = db.collection("users")
+                            usersRef.whereField("referralCode", isEqualTo: referralCode).getDocuments { snapshot, _ in
+                                guard let inviterDoc = snapshot?.documents.first else { return }
+                                
+                                usersRef.document(inviterDoc.documentID).updateData([
+                                    "stepcoins": FieldValue.increment(Int64(200))
+                                ])
+                                
+                                usersRef.document(user.uid).updateData([
+                                    "stepcoins": FieldValue.increment(Int64(200))
+                                ])
+                            }
+                        }
+                        
+                        completion(error)
+                    }
+                }
             }
-            
-            let changeRequest = result?.user.createProfileChangeRequest()
-            changeRequest?.displayName = "\(firstName) \(lastName)"
-            changeRequest?.commitChanges { error in
-                self.updateUser(from: result?.user)
-                completion(error)
-            }
-        }
-    }
     
     func signOut() {
         do {
