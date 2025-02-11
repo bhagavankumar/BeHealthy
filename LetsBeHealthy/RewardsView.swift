@@ -16,6 +16,8 @@ struct RewardsView: View {
     @State private var mailMessage: String = ""
     @State private var selectedReward: String = ""
     @State private var showSuccessAlert = false
+    @State private var showHistory = false
+    @State private var coinHistory: [CoinHistoryEntry] = []
     @AppStorage("stepCoinsFromSteps") private var stepCoinsFromSteps: Int = 0
     @AppStorage("stepCoinsFromMeditation") private var stepCoinsFromMeditation: Int = 0
 
@@ -54,12 +56,21 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
                         .foregroundColor(.white)
                         .padding()
                     
-                    // Total StepCoins Earned (Automatically Updated)
                     VStack {
-                        Text("Total StepCoins Earned")
-                            .font(.title2)
-                            .foregroundColor(.white.opacity(0.8))
-                        
+                        HStack {
+                            Text("Total StepCoins Earned")
+                                .font(.title2)
+                                .foregroundColor(.white.opacity(0.8))
+                            Spacer()
+                            Button(action: {
+                                showHistory.toggle()
+                            }) {
+                                Image(systemName: "clock.arrow.circlepath") // History icon
+                                    .foregroundColor(.white)
+                                    .padding(5)
+                            }
+                        }
+
                         Text("\(totalStepCoins) 💰")
                             .font(.system(size: 50, weight: .bold))
                             .foregroundColor(.white)
@@ -158,10 +169,24 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
                 .padding()
             }
         }
+        .alert(isPresented: $showSuccessAlert) { // ✅ Alert here
+            Alert(
+                title: Text("🎉 Reward Redeemed"),
+                message: Text("You have successfully redeemed \(selectedReward). Your reward details will be sent to your email."),
+                dismissButton: .default(Text("OK"))
+            )
+        }
         .onAppear {
             resetStepTrackingIfNeeded()
             fetchTotalStepsSinceInstallation()
             fetchStepCount()
+            loadCoinHistory()
+        }
+        .sheet(isPresented: $showHistory) {
+            CoinHistoryView(coinHistory: coinHistory)
+                .onAppear {
+                            loadCoinHistory() // ✅ Ensure history is updated when sheet appears
+                        }
         }
         .background(Color(.systemBackground).opacity(0.2))
     }
@@ -195,6 +220,10 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
                 stepCoinsFromSteps += newStepCoins
                 totalSteps += newSteps
                 
+                let stepCoinEntry = CoinHistoryEntry(date: Date(), amount: newStepCoins, source: "Steps")
+                        coinHistory.append(stepCoinEntry)
+                        saveCoinHistory()
+                // ✅ Ensure the latest total steps are stored
                 UserDefaults.standard.set(Int(stepCount), forKey: "lastTotalSteps")
                 UserDefaults.standard.set(totalStepCoins, forKey: "totalStepCoins")
 
@@ -203,6 +232,63 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
                 print("No new steps to add.")
             }
         }
+    // 🔹 Define a Codable struct for Coin History Entry
+    struct CoinHistoryEntry: Codable {
+        let date: Date
+        let amount: Int
+        let source: String
+    }
+
+    // 🔹 Save Coin History to UserDefaults
+    private func saveCoinHistory() {
+        do {
+            // ✅ Load previous history first
+            var savedHistory: [CoinHistoryEntry] = []
+            if let savedData = UserDefaults.standard.data(forKey: "coinHistory") {
+                savedHistory = try JSONDecoder().decode([CoinHistoryEntry].self, from: savedData)
+            }
+            
+            // ✅ Append new records
+            savedHistory.append(contentsOf: coinHistory)
+
+            let encodedData = try JSONEncoder().encode(savedHistory)
+            UserDefaults.standard.set(encodedData, forKey: "coinHistory")
+            
+            print("✅ Coin history saved successfully: \(savedHistory.count) entries")
+        } catch {
+            print("❌ Failed to save coin history: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadCoinHistory() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let savedData = UserDefaults.standard.data(forKey: "coinHistory") {
+                do {
+                    var decodedHistory = try JSONDecoder().decode([CoinHistoryEntry].self, from: savedData)
+                    
+                    DispatchQueue.main.async {
+                        self.coinHistory = decodedHistory
+
+                        // ✅ Ensure Meditation Coins are Added to History without Duplicates
+                        if self.stepCoinsFromMeditation > 0 {
+                            let meditationEntry = CoinHistoryEntry(date: Date(), amount: self.stepCoinsFromMeditation, source: "Meditation")
+
+                            if !self.coinHistory.contains(where: { $0.source == "Meditation" }) {
+                                self.coinHistory.append(meditationEntry)
+                                self.saveCoinHistory()  // Save updated history
+                            }
+                        }
+
+                        print("✅ Coin history loaded successfully: \(self.coinHistory)")
+                    }
+                } catch {
+                    print("❌ Failed to load coin history: \(error.localizedDescription)")
+                }
+            } else {
+                print("⚠️ No saved coin history found")
+            }
+        }
+    }
     private func resetStepTrackingIfNeeded() {
         let calendar = Calendar.current
         let lastUpdateDate = UserDefaults.standard.object(forKey: "lastCoinUpdateDate") as? Date ?? Date.distantPast
@@ -252,6 +338,7 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
 
         // Show success message
         showSuccessAlert = true
+        
 
         showNotificationMessage("🎉 You have successfully redeemed \(reward.name). Your reward will be sent to your mail!")
 
@@ -307,7 +394,41 @@ let achievements: [(name: String, image: String, threshold: Int)] = [
           }
           HKHealthStore().execute(query)
       }
-    
+    struct CoinHistoryView: View {
+        let coinHistory: [CoinHistoryEntry]
+        
+        var body: some View {
+            NavigationView {
+                if coinHistory.isEmpty {
+                    VStack {
+                        Text("No StepCoins history yet")
+                            .font(.headline)
+                            .foregroundColor(.gray)
+                            .padding()
+                        Image(systemName: "list.bullet")
+                            .resizable()
+                            .frame(width: 50, height: 50)
+                            .foregroundColor(.gray.opacity(0.5))
+                    }
+                } else {
+                    List(coinHistory.reversed(), id: \.date) { entry in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text("+\(entry.amount) 💰 (\(entry.source))")
+                                    .font(.headline)
+                                    .foregroundColor(entry.source == "Steps" ? .green : .blue)
+                                Text("\(entry.date.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 5)
+                    }
+                }
+            }
+        }
+    }
     struct RewardItemView: View {
         let item: (name: String, cost: Int)
         let totalStepCoins: Int

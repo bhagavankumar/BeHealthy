@@ -298,7 +298,7 @@ private func generateReferralCode(uid: String) -> String {
 }
     
     private func saveChanges() {
-        guard let user = Auth.auth().currentUser else {
+        guard Auth.auth().currentUser != nil else {
             print("No authenticated user found.")
             return
         }

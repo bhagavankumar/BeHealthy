@@ -64,7 +64,7 @@ struct LoginOnlyView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                TextField("Email", text: $email)
+                TextField("Email or Username", text: $email)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
                     .autocapitalization(.none)
@@ -74,26 +74,18 @@ struct LoginOnlyView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
                 
-                Button(action:
-                        {
-                    AuthManager.shared.signIn(email: email, password: password) { error in
-                        if let error = error {
-                            errorMessage = error.localizedDescription
-                            print("❌ Login failed: \(error.localizedDescription)")
-                        } else {
-                            isLoggedIn = true
-                        }
-                    }
-                }) {
-                    Text("Login")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(width: 200, height: 50)
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                        .shadow(radius: 5)
-                }
-                .padding()
+                Button(action: {
+                                    login()
+                                }) {
+                                    Text("Login")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .frame(width: 200, height: 50)
+                                        .background(Color.blue)
+                                        .cornerRadius(10)
+                                        .shadow(radius: 5)
+                                }
+                                .padding()
                 if let errorMessage = errorMessage {
                     Text(errorMessage)
                         .foregroundColor(.red)
@@ -135,6 +127,114 @@ struct LoginOnlyView: View {
             }
             .padding()
             
+        }
+    }
+    func login() {
+        let db = Firestore.firestore()
+
+        if email.contains("@") {
+            // ✅ If input is an email, login directly
+            AuthManager.shared.signIn(email: email, password: password) { error in
+                if let error = error {
+                    errorMessage = error.localizedDescription
+                } else {
+                    isLoggedIn = true
+                }
+            }
+        } else {
+            // ✅ If input is a username, find the corresponding email first
+            let usernameLower = email.lowercased()
+
+            print("🔍 Searching for username: \(usernameLower)")
+
+            db.collection("usernames").document(usernameLower).getDocument { document, error in
+                if let error = error {
+                    print("❌ Error finding username: \(error.localizedDescription)")
+                    DispatchQueue.main.async {
+                        self.errorMessage = "❌ Failed to find username"
+                    }
+                    return
+                }
+
+                if let document = document, document.exists {
+                    let uid = document.data()?["uid"] as? String ?? ""
+                    print("✅ Found UID for username: \(uid)")
+
+                    if !uid.isEmpty {
+                        // ✅ Fetch the email from Firestore using the UID
+                        db.collection("users").document(uid).getDocument { userDoc, userError in
+                            if let userError = userError {
+                                print("❌ Error fetching user email: \(userError.localizedDescription)")
+                                DispatchQueue.main.async {
+                                    self.errorMessage = "❌ User not found"
+                                }
+                                return
+                            }
+
+                            if let userDoc = userDoc, userDoc.exists {
+                                let foundEmail = userDoc.data()?["email"] as? String
+                                print("✅ Found email for username: \(foundEmail ?? "Unknown")")
+
+                                if let foundEmail = foundEmail {
+                                    // ✅ Perform login with retrieved email
+                                    AuthManager.shared.signIn(email: foundEmail, password: password) { error in
+                                        if let error = error {
+                                            DispatchQueue.main.async {
+                                                self.errorMessage = error.localizedDescription
+                                            }
+                                        } else {
+                                            DispatchQueue.main.async {
+                                                self.isLoggedIn = true
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    DispatchQueue.main.async {
+                                        self.errorMessage = "❌ Email not found for this username"
+                                    }
+                                }
+                            } else {
+                                DispatchQueue.main.async {
+                                    self.errorMessage = "❌ User not found"
+                                }
+                            }
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.errorMessage = "❌ Username not found"
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.errorMessage = "❌ Username does not exist"
+                    }
+                }
+            }
+        }
+    }
+
+    // ✅ Find Email by Username
+    func findEmailByUsername(username: String, completion: @escaping (String?) -> Void) {
+        let db = Firestore.firestore()
+        let usernameLower = username.lowercased()
+
+        print("🔍 Searching for username: \(usernameLower)")
+
+        db.collection("users").whereField("username_lowercase", isEqualTo: usernameLower).getDocuments { snapshot, error in
+            if let error = error {
+                print("❌ Error finding username: \(error.localizedDescription)")
+                completion(nil)
+                return
+            }
+
+            if let document = snapshot?.documents.first {
+                let email = document.data()["email"] as? String
+                print("✅ Found user: \(document.data())")
+                completion(email)
+            } else {
+                print("⚠️ Username not found in Firestore")
+                completion(nil)
+            }
         }
     }
     func handleAppleSignIn() {
@@ -237,7 +337,7 @@ class AppleSignInDelegate: NSObject, ASAuthorizationControllerDelegate {
         }
         
         let nonce = generateNonce() // Generate a secure nonce
-        let credential = OAuthProvider.credential(withProviderID: "apple.com",
+        let credential = OAuthProvider.credential(providerID: AuthProviderID.apple,
                                                   idToken: idTokenString,
                                                   rawNonce: nonce)
         
@@ -305,9 +405,10 @@ struct SignupView: View {
     @Binding var isLoggedIn: Bool
     @Binding var user: AppUser?
     @StateObject private var authViewModel = AuthViewModel()
-
+    
     @State private var firstName: String = ""
     @State private var lastName: String = ""
+    @State private var username: String = ""
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var confirmPassword: String = ""
@@ -315,7 +416,10 @@ struct SignupView: View {
     @State private var dateOfBirth = Date()
     @State private var isVerificationStep: Bool = false
     @State private var showPasswordMismatch: Bool = false
-
+    @State private var usernameError: String?
+    @State private var isCheckingUsername = false
+    
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -325,11 +429,11 @@ struct SignupView: View {
                         .foregroundColor(.green)
                         .multilineTextAlignment(.center)
                         .padding()
-
+                    
                     Button("I have verified my email") {
                         authViewModel.checkEmailVerification { success in
                             if success {
-                                authViewModel.login(email: email, password: password) { loginSuccess, userDetails in
+                                authViewModel.login(emailOrUsername: email, password: password) { loginSuccess, userDetails in
                                     if loginSuccess, let userDetails = userDetails {
                                         self.user = AppUser(
                                             firstName: userDetails.firstName,
@@ -348,41 +452,55 @@ struct SignupView: View {
                         TextField("First Name", text: $firstName)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .padding()
-
+                        
                         TextField("Last Name", text: $lastName)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .padding()
                     }
-
+                    TextField("Username", text: $username)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .onChange(of: username) {
+                            checkUsernameAvailability()
+                        }
+                    
+                    if let usernameError = usernameError {
+                        Text(usernameError)
+                            .foregroundColor(.red)
+                            .font(.footnote)
+                    }
+                    
                     TextField("Email", text: $email)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .padding()
                         .autocapitalization(.none)
                         .keyboardType(.emailAddress)
-
+                    
                     DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
                         .datePickerStyle(CompactDatePickerStyle())
                         .padding()
-
+                    
                     SecureField("Password", text: $password)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .padding()
-
+                    
                     SecureField("Confirm Password", text: $confirmPassword)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .padding()
-
+                    
                     if showPasswordMismatch {
                         Text("❌ Passwords do not match")
                             .foregroundColor(.red)
                             .font(.footnote)
                     }
-
+                    
                     TextField("Referral Code (Optional)", text: $referralCode)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .padding()
                         .autocapitalization(.allCharacters)
-
+                    
                     Button(action: {
                         if password != confirmPassword {
                             showPasswordMismatch = true
@@ -391,6 +509,7 @@ struct SignupView: View {
                             authViewModel.signUp(
                                 firstName: firstName,
                                 lastName: lastName,
+                                username: username,
                                 email: email,
                                 password: password,
                                 dateOfBirth: dateOfBirth,
@@ -422,7 +541,7 @@ struct SignupView: View {
                     }
                     .padding()
                     .disabled(password.isEmpty || confirmPassword.isEmpty || email.isEmpty)
-
+                    
                     if !authViewModel.errorMessage.isEmpty {
                         Text(authViewModel.errorMessage)
                             .foregroundColor(.red)
@@ -434,7 +553,29 @@ struct SignupView: View {
             .background(Color(.systemBackground).opacity(0.2))
         }
     }
+    func checkUsernameAvailability() {
+        let usernameLower = username.lowercased()
+        guard !usernameLower.isEmpty else { return }
+        
+        isCheckingUsername = true
+        let db = Firestore.firestore()
+        
+        db.collection("usernames").document(usernameLower).getDocument { document, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("❌ Firestore error: \(error.localizedDescription)")
+                    self.usernameError = "❌ Error checking username"
+                } else if let document = document, document.exists {
+                    self.usernameError = "❌ Username is already taken"
+                } else {
+                    self.usernameError = nil // ✅ Username is available
+                }
+                self.isCheckingUsername = false
+            }
+        }
+    }
 }
+    
 // 🔹 Forgot Password View
 struct ForgotPasswordView: View {
     @State private var email: String = ""

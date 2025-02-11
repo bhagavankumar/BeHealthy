@@ -35,53 +35,77 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    func signUp(firstName: String, lastName: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool, AppUser?) -> Void) {
-        Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
-            guard let self = self else { return }
-            
+    func signUp(firstName: String, lastName: String, username: String, email: String, password: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool, AppUser?) -> Void) {
+        let usernameLower = username.lowercased()
+        let db = Firestore.firestore()
+
+        // ✅ Check if username already exists
+        db.collection("usernames").document(usernameLower).getDocument { document, error in
             if let error = error {
-                self.handleError(error: error, message: "❌ Signup failed: \(error.localizedDescription)")
+                print("❌ Firestore error checking username: \(error.localizedDescription)")
                 completion(false, nil)
                 return
             }
-            
-            guard let user = result?.user else {
-                self.handleError(message: "❌ User creation failed. Try again.")
+
+            if let document = document, document.exists {
+                print("❌ Username already taken")
                 completion(false, nil)
                 return
             }
-            user.sendEmailVerification { error in
+
+            // ✅ Username is available, proceed with account creation
+            Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
+                guard let self = self else { return }
+                
                 if let error = error {
-                    self.errorMessage = "Failed to send verification email: \(error.localizedDescription)"
+                    self.handleError(error: error, message: "❌ Signup failed: \(error.localizedDescription)")
                     completion(false, nil)
                     return
                 }
-                do {
-                    try Auth.auth().signOut()
-                    self.errorMessage = ""
-                    completion(true, AppUser(firstName: firstName, lastName: lastName, email: email))
-                } catch {
-                    self.errorMessage = "Failed to sign out: \(error.localizedDescription)"
+                
+                guard let user = result?.user else {
+                    self.handleError(message: "❌ User creation failed. Try again.")
                     completion(false, nil)
+                    return
                 }
                 
-                
-                self.saveUserToFirestore(
-                    uid: user.uid,
-                    firstName: firstName,
-                    lastName: lastName,
-                    email: email,
-                    dateOfBirth: dateOfBirth,
-                    referralCode: referralCode
-                ) { success in
-                    if success {
-                        let newUser = AppUser(firstName: firstName, lastName: lastName, email: email)
-                        completion(true, newUser)
-                        print("✅ User created with UID: \(user.uid)")
-                    } else {
-                        user.delete { _ in
-                            self.handleError(message: "❌ Failed to save user data. Account removed.")
-                            completion(false, nil)
+                user.sendEmailVerification { error in
+                    if let error = error {
+                        self.errorMessage = "Failed to send verification email: \(error.localizedDescription)"
+                        completion(false, nil)
+                        return
+                    }
+                    
+                    // ✅ Save user data to Firestore
+                    self.saveUserToFirestore(
+                        uid: user.uid,
+                        firstName: firstName,
+                        lastName: lastName,
+                        username: username,
+                        email: email,
+                        dateOfBirth: dateOfBirth,
+                        referralCode: referralCode
+                    ) { success in
+                        if success {
+                            // ✅ Store the username in `usernames` collection
+                            db.collection("usernames").document(usernameLower).setData(["uid": user.uid]) { error in
+                                if let error = error {
+                                    print("❌ Failed to save username: \(error.localizedDescription)")
+                                    user.delete { _ in
+                                        self.handleError(message: "❌ Username save failed. Account removed.")
+                                        completion(false, nil)
+                                    }
+                                } else {
+                                    print("✅ Username stored successfully in Firestore")
+                                    let newUser = AppUser(firstName: firstName, lastName: lastName, email: email)
+                                    completion(true, newUser)
+                                }
+                            }
+                        } else {
+                            user.delete { _ in
+                                self.handleError(message: "❌ Failed to save user data. Account removed.")
+                                completion(false, nil)
+                            }
                         }
                     }
                 }
@@ -89,11 +113,13 @@ class AuthViewModel: ObservableObject {
         }
     }
     
-    private func saveUserToFirestore(uid: String, firstName: String, lastName: String, email: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool) -> Void) {
+    private func saveUserToFirestore(uid: String, firstName: String, lastName: String, username: String, email: String, dateOfBirth: Date, referralCode: String?, completion: @escaping (Bool) -> Void) {
         let db = Firestore.firestore()
         let userData: [String: Any] = [
             "firstName": firstName,
             "lastName": lastName,
+            "username": username,  // ✅ Store username
+            "username_lowercase": username.lowercased(),  // ✅ Store lowercase for easy search
             "email": email,
             "dateOfBirth": Timestamp(date: dateOfBirth),
             "referralCode": referralCode ?? "",
@@ -148,30 +174,76 @@ class AuthViewModel: ObservableObject {
         }
     }
 
-    func login(email: String, password: String, completion: @escaping (Bool, AppUser?) -> Void) {
-        Auth.auth().signIn(withEmail: email, password: password) { [weak self] authResult, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                self.handleError(error: error, message: "❌ Login failed: \(error.localizedDescription)")
-                completion(false, nil)
-                return
+    func login(emailOrUsername: String, password: String, completion: @escaping (Bool, AppUser?) -> Void) {
+        let db = Firestore.firestore()
+        
+        if emailOrUsername.contains("@") {
+            // ✅ Login using email
+            Auth.auth().signIn(withEmail: emailOrUsername, password: password) { [weak self] authResult, error in
+                self?.handleLoginResponse(authResult: authResult, error: error, completion: completion)
             }
-            
-            guard let user = authResult?.user else {
-                self.handleError(message: "❌ User not found")
-                completion(false, nil)
-                return
+        } else {
+            // ✅ Login using username → Find email first
+            let usernameLower = emailOrUsername.lowercased()
+            db.collection("usernames").document(usernameLower).getDocument { document, error in
+                if let error = error {
+                    print("❌ Firestore error checking username: \(error.localizedDescription)")
+                    completion(false, nil)
+                    return
+                }
+                
+                guard let document = document, document.exists,
+                      let uid = document.data()?["uid"] as? String else {
+                    print("❌ Username not found")
+                    completion(false, nil)
+                    return
+                }
+                
+                // ✅ Get email from Firestore
+                db.collection("users").document(uid).getDocument { userDoc, userError in
+                    if let userError = userError {
+                        print("❌ Error fetching user email: \(userError.localizedDescription)")
+                        completion(false, nil)
+                        return
+                    }
+                    
+                    if let userDoc = userDoc, userDoc.exists,
+                       let email = userDoc.data()?["email"] as? String {
+                        print("✅ Found email for username: \(email)")
+                        
+                        // ✅ Login using retrieved email
+                        Auth.auth().signIn(withEmail: email, password: password) { [weak self] authResult, error in
+                            self?.handleLoginResponse(authResult: authResult, error: error, completion: completion)
+                        }
+                    } else {
+                        print("❌ Email not found for username")
+                        completion(false, nil)
+                    }
+                }
             }
-            
-            if !user.isEmailVerified {
-                self.handleError(message: "❌ Please verify your email first")
-                completion(false, nil)
-                return
-            }
-            
-            self.fetchUserDetails(uid: user.uid, completion: completion)
         }
+    }
+
+    private func handleLoginResponse(authResult: AuthDataResult?, error: Error?, completion: @escaping (Bool, AppUser?) -> Void) {
+        if let error = error {
+            print("❌ Login failed: \(error.localizedDescription)")
+            completion(false, nil)
+            return
+        }
+        
+        guard let user = authResult?.user else {
+            print("❌ User not found")
+            completion(false, nil)
+            return
+        }
+        
+        if !user.isEmailVerified {
+            print("❌ Please verify your email first")
+            completion(false, nil)
+            return
+        }
+        
+        fetchUserDetails(uid: user.uid, completion: completion)
     }
     
     private func fetchUserDetails(uid: String, completion: @escaping (Bool, AppUser?) -> Void) {

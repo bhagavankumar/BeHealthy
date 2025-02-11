@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UserNotifications
 
 struct MeditationView: View {
     @State private var isMeditationActive = false
@@ -54,7 +55,7 @@ struct MeditationView: View {
                     // **Finish Button - Stops Alarm & Exits UI**
                     Button(action: {
                         player?.stop() // Stop the alarm
-
+                        finishMeditation()
                         // Update lastMeditationDate and coins here
                         let today = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .none)
                         if lastMeditationDate != today {
@@ -141,9 +142,24 @@ struct MeditationView: View {
             }
             .padding(.top, 20)
         }
+        .onAppear {
+                requestNotificationPermission() // ✅ Ask for notification permissions when the view appears
+            UNUserNotificationCenter.current().delegate = NotificationManager.shared
+            }
+    }
+    
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if granted {
+                print("✅ Notification permission granted.")
+            } else {
+                print("❌ Notification permission denied: \(error?.localizedDescription ?? "Unknown error")")
+            }
+        }
     }
     
     private func closeMeditation() {
+        NotificationManager.shared.stopAlarm()
         player?.stop() // Stop alarm
         timer?.invalidate() // Stop timer if running
         isMeditationActive = false
@@ -157,7 +173,15 @@ struct MeditationView: View {
         remainingTime = minutes * 60
         progress = 1.0
         isMeditationCompleted = false // Reset state
+        scheduleMeditationNotification(minutes: minutes) // ✅ Schedules a system alarm
 
+            // ✅ Activate Audio Session to keep app active (only for in-app sound)
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: .mixWithOthers)
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                print("❌ Failed to activate background audio: \(error.localizedDescription)")
+            }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             if remainingTime > 0 {
@@ -172,10 +196,45 @@ struct MeditationView: View {
     private func endMeditation() {
         isMeditationCompleted = true
         timer?.invalidate()
-        playAlarm()
-        // Removed the code updating lastMeditationDate and step coins here
-    }
+        playAlarm() // ✅ This will play the in-app sound
 
+            // ✅ Ensure Meditation Alarm Notification is Cleared
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["meditationComplete"])
+    }
+    private func finishMeditation() {
+        let today = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .none)
+        
+        // ✅ Stop alarm when meditation is finished
+        NotificationManager.shared.stopAlarm()
+        
+        if lastMeditationDate != today {
+            lastMeditationDate = today
+            stepCoinsFromMeditation += rewardForMeditation()
+            UserDefaults.standard.set(stepCoinsFromMeditation, forKey: "stepCoinsFromMeditation")
+        }
+
+        presentationMode.wrappedValue.dismiss()
+    }
+    private func scheduleMeditationNotification(minutes: Int) {
+        let content = UNMutableNotificationContent()
+        content.title = "Meditation Complete 🎵"
+        content.body = "Your meditation session has ended. Tap to return to the app."
+
+        // ✅ Use a custom sound for the notification
+        content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: "alarm.wav"))
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(minutes * 60), repeats: false)
+
+        let request = UNNotificationRequest(identifier: "meditationComplete", content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ Error scheduling notification: \(error.localizedDescription)")
+            } else {
+                print("✅ Meditation alarm scheduled for \(minutes) minutes.")
+            }
+        }
+    }
 //    private func endMeditation() {
 //        isMeditationCompleted = true // UI remains on "Session Completed"
 //        timer?.invalidate()

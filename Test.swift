@@ -1,15 +1,15 @@
 //
-//  LetsBeHealthyTests.swift
+//  Test.swift
 //  LetsBeHealthyTests
 //
-//  Created by Bhagavan Kumar V on 2025-01-09.
+//  Created by Bhagavan Kumar V on 2025-02-08.
 //
 
 import Testing
 
-struct LetsBeHealthyTests {
+struct Test {
 
-    @Test func example() async throws {
+    @Test func <#test function name#>() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.
     }
 
